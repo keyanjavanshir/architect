@@ -68,6 +68,9 @@ Full table: `skills/agent-architect/references/harnesses.md`. Points that drove 
 4. Model tiers map only for Claude Code (aliases) and Codex (reasoning effort).
 5. Ideas deferred from v0.1: packaging as Claude Code / Copilot plugins, evals for
    generated systems, an "extend existing system" flow with diff preview.
+6. Owner's v0.2 ideas — design review with diagrams before generating, domain expert
+   packs plus a domain-scout skill, advisory model/effort recommendations. Design notes and
+   suggested order in [docs/ideas.md](docs/ideas.md).
 
 ## Owner
 
