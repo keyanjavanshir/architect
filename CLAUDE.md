@@ -72,6 +72,9 @@ Full table: `skills/agent-architect/references/harnesses.md`. Points that drove 
 6. Owner's v0.2 ideas — design review with diagrams before generating, and domain expert
    packs plus a domain-scout skill (now github.com/keyanjavanshir/domain-scout). Model/effort
    recommendations were considered and dropped. Design notes in [docs/ideas.md](docs/ideas.md).
+   Domain packs are wired in: `references/domains.md` (where packs live, how each phase uses
+   them; overlay wins over pack) and `scripts/find_pack.py` (keyword match, plurals folded).
+   First live test: designing a system for the owner's `creative-direction-event-film` pack.
 
 ## Owner
 

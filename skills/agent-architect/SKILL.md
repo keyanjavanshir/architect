@@ -27,10 +27,13 @@ Track these phases as a checklist the user can see.
 - Read the repo's README and AGENTS.md/CLAUDE.md for context you would otherwise ask about.
 - Pick the mode: **new** system, **extend** an existing one, or **audit** (validate and
   suggest fixes; skip to step 6 with `scripts/validate.py`).
+- Look for a **domain pack** for the user's field — read
+  [references/domains.md](references/domains.md). If one matches, load it and its overlay;
+  it changes the questions you ask, the tools you suggest and the agents you design.
 
 ### 2. Interview — read [references/interview.md](references/interview.md)
 
-Walk the design tree one question at a time. Every question comes with your recommended
+Walk the design tree one question at a time, with the loaded pack's questions merged in. Every question comes with your recommended
 answer and a one-line reason. Never ask what you can find out by reading files or searching.
 Keep a running decision log. Stop when no branch is open, then play the design back as a
 short table and get an explicit "yes".

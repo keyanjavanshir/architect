@@ -19,6 +19,7 @@ SCRIPTS = ROOT / "skills" / "agent-architect" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import blueprint_lib  # noqa: E402
+import find_pack  # noqa: E402
 import mcp_search  # noqa: E402
 import render  # noqa: E402
 import validate  # noqa: E402
@@ -312,6 +313,67 @@ class McpSearch(unittest.TestCase):
         bp["agents"][-1]["mcp"] = [e["name"] for e in entries]
         errors = blueprint_lib.check_blueprint(blueprint_lib.normalize(bp))[0]
         self.assertEqual(errors, [])
+
+
+
+def make_pack(base: Path, name: str, keywords: list[str], overlay: bool = False) -> None:
+    folder = base / name
+    folder.mkdir(parents=True)
+    fm = {"name": name, "title": name, "status": "draft", "checked": "2026-11-20", "keywords": keywords}
+    (folder / "DOMAIN.md").write_text("---\n" + yaml.safe_dump(fm) + "---\n\n# " + name + "\n")
+    if overlay:
+        (folder / "OVERLAY.md").write_text("---\nextends: " + name + "\n---\n")
+
+
+class FindPack(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.shared = self.tmp / "shared"
+        self.project = self.tmp / "project"
+        make_pack(self.shared, "creative-direction-event-film", ["aftermovie", "event video", "sound design"])
+        make_pack(self.shared, "creative-direction-film", ["video production", "commercial"])
+        self.project.mkdir()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp)
+
+    def test_ranks_by_keyword_hits(self):
+        packs = find_pack.discover([self.shared])
+        ranked = find_pack.rank("I edit an aftermovie and an event video, sound design is hard", packs)
+        self.assertEqual(ranked[0]["name"], "creative-direction-event-film")
+        self.assertEqual(ranked[0]["score"], 5)  # 1 + 2 + 2 words
+        self.assertEqual(len(ranked), 1)
+
+    def test_plurals_match(self):
+        packs = find_pack.discover([self.shared])
+        ranked = find_pack.rank("I make aftermovies and commercials", packs)
+        self.assertEqual({p["name"] for p in ranked}, {"creative-direction-event-film", "creative-direction-film"})
+
+    def test_matches_whole_words_only(self):
+        packs = find_pack.discover([self.shared])
+        self.assertEqual(find_pack.rank("commercially viable", packs), [])
+
+    def test_overlay_from_project_dir(self):
+        overlay_dir = self.project / "creative-direction-event-film"
+        overlay_dir.mkdir()
+        (overlay_dir / "OVERLAY.md").write_text("---\nextends: creative-direction-event-film\n---\n")
+        packs = find_pack.discover([self.project, self.shared])
+        self.assertTrue(packs["creative-direction-event-film"]["overlay"].endswith("OVERLAY.md"))
+        self.assertIsNone(packs["creative-direction-film"]["overlay"])
+
+    def test_project_pack_wins(self):
+        make_pack(self.project, "creative-direction-film", ["local"])
+        packs = find_pack.discover([self.project, self.shared])
+        self.assertEqual(packs["creative-direction-film"]["keywords"], ["local"])
+
+    def test_cli_exit_codes(self):
+        code, out, _ = run(find_pack.main, ["aftermovie help", "--dirs", str(self.shared)])
+        self.assertEqual(code, 0)
+        self.assertIn("creative-direction-event-film", out)
+        code, _, err = run(find_pack.main, ["tax returns", "--dirs", str(self.shared)])
+        self.assertEqual(code, 1)
+        self.assertIn("No pack matches", err)
 
 
 if __name__ == "__main__":

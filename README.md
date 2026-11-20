@@ -116,6 +116,7 @@ All in `skills/agent-architect/scripts/`, Python standard library plus PyYAML:
 | `render.py B --out DIR --harness all` | Writes the files. `--dry-run` previews. Refuses to overwrite files it did not create (`--force` to override). |
 | `validate.py --out DIR` | Checks agent and skill files in any project: frontmatter, sizes, broken or nested references, empty agents, duplicate skills. |
 | `mcp_search.py KEYWORD --yaml` | Searches the official MCP registry and prints blueprint-ready entries. |
+| `find_pack.py "REQUEST"` | Finds the [domain-scout](https://github.com/keyanjavanshir/domain-scout) packs that match a request, with their status and any project overlay. |
 
 ## Status and limits
 
