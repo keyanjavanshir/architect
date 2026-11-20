@@ -70,9 +70,9 @@ first, re-check anything older than its `Checked` date with `scripts/mcp_search.
 treat "none found" as a cue for an API or file export, not as a gap to fill.
 
 **Blueprint.** Shape agents after the pack's teams and expert roles; avoid its
-anti-patterns. Tools the user installs once (CLIs, libraries, LUTs, models)
-go in `system.requirements` so SETUP.md lists them. Every irreversible action the pack names becomes a checkpoint, and every
-"never" becomes a rule in the relevant agent briefs.
+anti-patterns. Every irreversible action the pack names becomes a checkpoint, and every
+"never" becomes a rule in the relevant agent briefs. Tools the user installs once (CLIs,
+libraries, LUTs, models) go in `system.requirements`, so SETUP.md lists them.
 
 **Playback.** Add one line: which pack and overlay shaped the design.
 
