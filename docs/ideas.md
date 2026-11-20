@@ -1,7 +1,7 @@
 # Ideas for v0.2
 
 Captured 2026-11-20 from the owner, with design notes. Nothing here is built yet.
-Suggested order: **3 → 1 → 2** (smallest and most self-contained first).
+Suggested order: **1 → 2**. Idea 3 was dropped on 2026-11-20 (see below).
 
 ---
 
@@ -86,36 +86,41 @@ the MCP and skill recommendations far better.
 - Quality bar for generated packs: required source count, user review before first use,
   paraphrase only (no copied text).
 
+**Decision (2026-11-20): separate repository.** Packs and `domain-scout` live in their own
+repo; agent-architect fetches only the pack(s) a request needs and falls back to its generic
+interview when offline. Packs then version, grow and take contributions independently.
+
+**Prior art to draw ideas from (ideas only, no copied text; credit in CREDITS.md):**
+- [anthropics/knowledge-work-plugins](https://github.com/anthropics/knowledge-work-plugins)
+  (Apache-2.0): one package per role, each bundling its connectors (`.mcp.json`) — a model
+  for `tools.md` as ready connector config. "Generic until customized" suggests a
+  project-level overlay (company terms, approval chains) on top of a shared pack. Its
+  plugin-management plugin fills packs from a template, as domain-scout would.
+- [alirezarezvani/claude-skills](https://github.com/alirezarezvani/claude-skills) (MIT):
+  one repo with per-domain bundles installed separately — answers the "separate skills vs
+  references" question without one repo per domain. Its interview question bank and sector
+  playbooks match `questions.md` and `patterns.md`; `book-to-skill` suggests domain-scout
+  should also ingest the user's own documents, not only the web.
+- Awesome lists (e.g. VoltAgent/awesome-agent-skills): discovery sources for the scout, so a
+  pack can list existing skills to `install:` instead of regenerating them.
+- Research on skill generation (CoEvoSkills, SkillGen): pair the generator with a verifier,
+  and test a pack by running the same interview with and without it — a pack earns its
+  place only if the questions and tool suggestions get better.
+
+The difference from all of these: they are experts that *do the work* in a domain; packs
+here *inform the design* of a system for that domain. Nothing found does that.
+
 **Done when** a request in a domain with no pack produces a draft pack with sources, the
 interview visibly uses its questions, and its tool map drives the MCP suggestions.
 
 ---
 
-## 3. Recommend models and effort, never decide
+## 3. Recommend models and effort — dropped
 
-**Idea.** The architect recommends a model type and reasoning effort for each agent, but
-leaves the decision to the user.
-
-**Why.** Model choice is the biggest cost and quality lever in a parallel system (cost
-multiplies by fan-out width), and the user knows their budget and plan. Today v0.1 takes
-the tier from the blueprint and silently maps it to Codex effort, which mixes two decisions.
-
-**Design sketch**
-- During playback, show a table per agent: recommended tier and effort, a one-line reason,
-  and the cost effect (e.g. "×5 instances per run").
-- Heuristics live in a reference: mechanical or high-volume work → fast tier, low effort;
-  judgement-heavy review or synthesis → strong tier, higher effort; a publisher behind a
-  checkpoint → fast tier.
-- Model lineups change quickly: look up the target harness's current models at design time
-  instead of hard-coding names; date anything written down.
-- Blueprint: add `effort` (`low | medium | high | max`) separate from `model`, and a
-  `recommended: {model, effort, reason}` block that is kept even when the user picks
-  something else. Defaults stay `inherit` until the user accepts.
-- Rendering: Claude Code `effort` frontmatter; Codex `model_reasoning_effort` (drop the
-  implicit tier→effort mapping); other harnesses note it in SETUP.md where unsupported.
-
-**Done when** no rendered agent has a model or effort the user did not explicitly accept,
-and `decisions.md` records each recommendation next to the choice.
+**Dropped 2026-11-20.** Recommending a model per agent means knowing which models each
+user's harness and plan offer today, and that changes faster than the generator does. The
+generator should outlive any model lineup, so it stays out of model choice. The existing
+`model` tier and per-harness `models` override remain as they are.
 
 ---
 
