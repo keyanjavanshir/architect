@@ -40,16 +40,16 @@ On top of that, every harness uses its own file format. agent-architect handles 
 With the [skills CLI](https://github.com/vercel-labs/skills) (any harness):
 
 ```bash
-npx skills add <owner>/agent-architect --skill agent-architect
+npx skills add keyanjavanshir/architect --skill agent-architect
 ```
 
 Or clone and run the installer. It installs for your user by default; pass `--project` to
 install into the current repo:
 
 ```bash
-git clone https://github.com/<owner>/agent-architect
-./agent-architect/install.sh            # ~/.agents/skills + ~/.claude/skills link
-./agent-architect/install.sh --project  # ./.agents/skills + ./.claude/skills link
+git clone https://github.com/keyanjavanshir/architect
+./architect/install.sh            # ~/.agents/skills + ~/.claude/skills link
+./architect/install.sh --project  # ./.agents/skills + ./.claude/skills link
 ```
 
 Requirements: Python 3.11+ and PyYAML (`pip install pyyaml`) for the scripts.
