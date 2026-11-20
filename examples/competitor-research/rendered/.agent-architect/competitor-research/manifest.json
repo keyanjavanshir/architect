@@ -1,0 +1,31 @@
+{
+  "generator": "agent-architect",
+  "harnesses": [
+    "claude-code",
+    "copilot-cli",
+    "codex",
+    "gemini-cli",
+    "cursor",
+    "opencode"
+  ],
+  "files": [
+    ".agent-architect/competitor-research/SETUP.md",
+    ".agents/skills/research-competitors/SKILL.md",
+    ".agents/skills/research-standards/SKILL.md",
+    ".agents/skills/research-standards/references/profile-template.md",
+    ".claude/agents/brief-writer.md",
+    ".claude/agents/company-researcher.md",
+    ".claude/skills/research-competitors",
+    ".claude/skills/research-standards",
+    ".codex/agents/brief-writer.toml",
+    ".codex/agents/company-researcher.toml",
+    ".cursor/agents/brief-writer.md",
+    ".cursor/agents/company-researcher.md",
+    ".gemini/agents/brief-writer.md",
+    ".gemini/agents/company-researcher.md",
+    ".github/agents/brief-writer.agent.md",
+    ".github/agents/company-researcher.agent.md",
+    ".opencode/agents/brief-writer.md",
+    ".opencode/agents/company-researcher.md"
+  ]
+}

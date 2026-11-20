@@ -1,0 +1,67 @@
+# agent-architect blueprint. Schema: references/blueprint.md
+# Fill every TODO, delete what you do not need, then run:
+#   python3 scripts/validate.py --blueprint <this file>
+version: 1
+
+system:
+  name: TODO-system-name
+  description: TODO one paragraph — what the system produces and for whom.
+  harnesses: [claude-code, copilot-cli, codex, gemini-cli, cursor, opencode]
+
+orchestrator:
+  name: TODO-verb-noun                # what the user types, e.g. review-pr
+  description: TODO what it does. Use when ...
+  argument_hint: "<TODO input>"
+  instructions: |
+    TODO preparation: how to gather inputs and split the work into units.
+  waves:
+    - name: TODO-work
+      agents: [TODO-worker]
+      for_each: TODO unit              # remove if the wave runs once
+      max_parallel: 6
+      pass: TODO what each brief must contain.
+    - name: TODO-synthesize
+      agents: [TODO-synthesizer]
+  checkpoints: []                     # e.g. - {before: publish, ask: "Post these results?"}
+  on_failure: retry-once
+  output: TODO the final deliverable and where it goes.
+
+agents:
+  - name: TODO-worker
+    description: TODO what it does. Use when ...
+    capabilities: [read, search]      # add edit, shell, web, delegate only if needed
+    owns: []                          # required with edit; use {item} under for_each
+    mcp: []
+    skills: []
+    model: inherit                    # inherit | fast | balanced | strong
+    prompt: |
+      TODO role, method and constraints. Under 80 lines.
+    returns: |
+      TODO exact output format.
+
+  - name: TODO-synthesizer
+    description: TODO Use when ...
+    capabilities: [read, search, edit]
+    owns: ["TODO/output.md"]
+    prompt: |
+      TODO
+    returns: |
+      TODO
+
+skills: []
+#  - name: TODO-knowledge
+#    description: TODO Use when ...
+#    body: |
+#      TODO under 200 lines
+#    references:
+#      - path: details.md
+#        when: read when ...
+#        content: |
+#          TODO
+
+mcp_servers: []
+#  - name: TODO
+#    why: TODO
+#    transport: http
+#    url: TODO
+#    headers: {Authorization: "Bearer ${TODO_TOKEN}"}

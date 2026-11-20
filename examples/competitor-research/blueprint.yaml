@@ -1,0 +1,116 @@
+version: 1
+
+system:
+  name: competitor-research
+  description: >-
+    Researches a list of competitors in parallel — one agent per company — and combines
+    the profiles into a single comparison brief with sources. No code involved.
+  harnesses: [claude-code, copilot-cli, codex, gemini-cli, cursor, opencode]
+
+orchestrator:
+  name: research-competitors
+  description: >-
+    Builds a sourced comparison of competitors by researching each one in parallel. Use
+    when the user gives a list of companies or products to compare.
+  argument_hint: "<comma-separated company names> [focus, e.g. pricing]"
+  instructions: |
+    1. Parse the company names and the optional focus. If there are more than 10, ask the
+       user to narrow the list.
+    2. Turn each name into a short slug (lowercase, hyphens) for its file name.
+    3. Confirm the list and the focus with the user in one line, then start.
+  waves:
+    - name: research
+      agents: [company-researcher]
+      for_each: company
+      max_parallel: 5
+      pass: The company name, its slug, the focus, and today's date.
+    - name: compare
+      agents: [brief-writer]
+      pass: The list of profile paths under `research/companies/` and the focus.
+  on_failure: skip-and-report
+  output: >-
+    `research/brief.md` — a comparison table plus key takeaways — with every claim linked
+    to a source. Show the takeaways to the user.
+
+agents:
+  - name: company-researcher
+    description: >-
+      Researches one company from public sources and writes a structured, sourced profile.
+      Use for each company in a competitor research run.
+    capabilities: [read, edit, web]
+    owns: ["research/companies/{item}.md"]
+    skills: [research-standards]
+    model: balanced
+    prompt: |
+      You research exactly one company, named in your brief.
+
+      1. Find the official site, pricing page, recent product announcements (last 12
+         months) and two independent sources (press, analyst, reviews).
+      2. Fill the profile template from the research-standards skill. Prefer the
+         company's own pages for facts and independent sources for reception.
+      3. Every factual line gets a source link. Mark anything you could not confirm as
+         `unverified`.
+      Stay on the focus given in the brief; skip sections that do not apply.
+    returns: |
+      Write the profile to `research/companies/<slug>.md`. Return the path, the number of
+      sources used, and any fields marked unverified.
+
+  - name: brief-writer
+    description: >-
+      Combines several company profiles into one comparison brief. Use after all
+      company research is done.
+    capabilities: [read, search, edit]
+    owns: ["research/brief.md"]
+    skills: [research-standards]
+    model: strong
+    prompt: |
+      You write the comparison brief from the profiles listed in your brief.
+
+      1. Build one table: rows = companies, columns = the fields that matter for the focus.
+      2. Write 3–5 takeaways, each backed by at least two profiles.
+      3. Carry source links through from the profiles; do not research anything new.
+      Call out gaps (missing or unverified data) in a final section.
+    returns: |
+      Write `research/brief.md`. Return the takeaways as a bullet list.
+
+skills:
+  - name: research-standards
+    description: >-
+      Profile template and sourcing rules for company research. Use when researching a
+      company or writing a comparison from company profiles.
+    body: |
+      # Research standards
+
+      ## Sourcing
+      - Link every factual claim to the page it came from. No link, no claim.
+      - Prefer primary sources (the company's site, filings, docs) for facts.
+      - Use at least two independent sources for opinions or market reception.
+      - Note the date you read pricing pages; prices change.
+
+      ## Profile template
+
+      Read [references/profile-template.md](references/profile-template.md) and copy its
+      structure exactly, so the brief writer can compare profiles field by field.
+    references:
+      - path: profile-template.md
+        content: |
+          # <Company name>
+
+          - **Website:** <url>
+          - **Researched on:** <date>
+
+          ## One-line summary
+
+          ## Products and positioning
+
+          ## Pricing
+          | Plan | Price | Notes | Source |
+          |---|---|---|---|
+
+          ## Recent moves (last 12 months)
+
+          ## Reception
+          What customers and analysts say, with sources.
+
+          ## Unverified
+          Anything you could not confirm.

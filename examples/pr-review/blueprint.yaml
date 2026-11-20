@@ -1,0 +1,179 @@
+version: 1
+
+system:
+  name: pr-review
+  description: >-
+    Reviews a GitHub pull request from three angles (security, tests, documentation) in
+    parallel, merges the findings into one prioritised review, and posts it to the PR after
+    the user approves.
+  harnesses: [claude-code, copilot-cli, codex, gemini-cli, cursor, opencode]
+
+orchestrator:
+  name: review-pr
+  description: >-
+    Runs a parallel security, test and docs review of a pull request and posts one merged
+    review. Use when the user asks to review a PR by number or URL.
+  argument_hint: "<PR number or URL>"
+  instructions: |
+    1. Fetch the PR title, description, and the list of changed files using the `github`
+       MCP server (or `gh pr view` / `gh pr diff` if it is not configured).
+    2. Save the full diff to `.review/diff.patch` so every reviewer reads the same input.
+    3. If the diff is over 3,000 lines, tell the user and ask which paths to focus on.
+  waves:
+    - name: review
+      agents: [security-reviewer, test-reviewer, docs-reviewer]
+      pass: The PR title and description, the path `.review/diff.patch`, and the list of changed files.
+    - name: merge
+      agents: [review-synthesizer]
+      pass: The three reviewers' findings, verbatim.
+    - name: publish
+      agents: [review-publisher]
+      pass: The path `.review/review.md` and the PR number.
+  checkpoints:
+    - before: publish
+      ask: "Here is the merged review. Post it to the PR as a comment?"
+  on_failure: retry-once
+  output: >-
+    `.review/review.md` with the merged review, shown to the user, and — after approval —
+    posted as a single PR review comment. Report the comment URL.
+
+agents:
+  - name: security-reviewer
+    description: >-
+      Finds security issues in a code diff: injection, authz gaps, secrets, unsafe
+      deserialisation, dependency risk. Use for the security pass of a PR review.
+    capabilities: [read, search]
+    skills: [review-rubric]
+    model: strong
+    prompt: |
+      You review one pull request diff for security problems only.
+
+      Method:
+      1. Read the diff at the path in your brief, then open surrounding code for context.
+      2. Check each changed function for: untrusted input reaching a query, shell, path or
+         template; missing or weakened authorisation; secrets in code or logs; new
+         dependencies and their versions.
+      3. Rate each finding with the review-rubric skill. Report only issues you can point
+         to in the diff; do not speculate about unchanged code.
+    returns: |
+      Markdown list, most severe first. Each item:
+      `- [severity] file:line — problem. Why it matters. Suggested fix.`
+      End with `Checked: <n> files`. If nothing is found, say `No security findings.`
+
+  - name: test-reviewer
+    description: >-
+      Checks whether a diff is adequately tested: missing tests, weakened assertions,
+      untested branches. Use for the testing pass of a PR review.
+    capabilities: [read, search, shell]
+    skills: [review-rubric]
+    model: balanced
+    prompt: |
+      You judge test coverage for one pull request diff.
+
+      Method:
+      1. Map each changed source file to its tests. Note changes with no test changes.
+      2. For new branches and error paths, check that a test exercises them.
+      3. You may run the existing test command for the touched package to confirm tests
+         pass. Never modify files and never run commands that write outside temp dirs.
+      4. Rate findings with the review-rubric skill.
+    returns: |
+      Markdown list, most severe first, same item format as other reviewers:
+      `- [severity] file:line — problem. Why it matters. Suggested test.`
+      Then one line: `Tests run: <command> → <pass|fail|not run>`.
+
+  - name: docs-reviewer
+    description: >-
+      Checks that user-facing changes in a diff are documented: README, changelog,
+      docstrings, migration notes. Use for the documentation pass of a PR review.
+    capabilities: [read, search]
+    skills: [review-rubric]
+    model: fast
+    prompt: |
+      You check documentation for one pull request diff.
+
+      Look for: changed public APIs, flags, config or behaviour without matching docs or
+      changelog entries; docstrings that no longer match their function; breaking changes
+      without migration notes. Ignore style nits. Rate findings with the review-rubric skill.
+    returns: |
+      Markdown list, same item format as other reviewers, or `No documentation findings.`
+
+  - name: review-synthesizer
+    description: >-
+      Merges findings from several reviewers into one deduplicated, prioritised review.
+      Use after the parallel review wave.
+    capabilities: [read, search, edit]
+    owns: [".review/review.md"]
+    model: balanced
+    prompt: |
+      You merge reviewer findings into one review a busy maintainer can act on.
+
+      1. Deduplicate findings that point at the same line or root cause; keep the
+         clearest wording and the highest severity.
+      2. Order by severity, then by file.
+      3. Open with a two-sentence verdict: approve, approve with nits, or request changes,
+         and the single most important reason.
+      Do not add findings of your own.
+    returns: |
+      Write the review to `.review/review.md` with sections: Verdict, Must fix, Should fix,
+      Nits. Return the verdict line and the counts per section.
+
+  - name: review-publisher
+    description: >-
+      Posts an approved review file as a single comment on a GitHub pull request. Use only
+      after the user has approved the review.
+    capabilities: [read]
+    mcp: [github]
+    model: fast
+    prompt: |
+      You post exactly one review comment.
+
+      Read the file from your brief and post its full contents as one review comment on
+      the given PR using the `github` MCP server. Do not edit the text, do not approve or
+      request changes, and do not post more than once even if a call seems slow.
+    returns: |
+      The URL of the posted comment, or the exact error message if posting failed.
+
+skills:
+  - name: review-rubric
+    description: >-
+      Severity scale and wording rules shared by all PR reviewers. Use when rating or
+      writing a code review finding.
+    body: |
+      # Review rubric
+
+      Rate every finding with exactly one severity:
+
+      | Severity | Meaning | Example |
+      |---|---|---|
+      | blocker | Will cause an incident, data loss or a security hole if merged. | SQL built from request input. |
+      | major | Wrong behaviour or a real gap a user will hit. | New error path with no test. |
+      | minor | Correct but fragile, unclear or inconsistent. | Docstring out of date. |
+      | nit | Taste. Only report if asked. | Naming preference. |
+
+      Wording rules:
+      - Point to `file:line` in the diff. No line, no finding.
+      - Say why it matters in one sentence, in terms of impact on users or maintainers.
+      - Suggest a concrete fix, not "consider improving".
+
+      For borderline security ratings, read the examples reference.
+    references:
+      - path: security-examples.md
+        when: read when unsure whether a security finding is a blocker or major
+        content: |
+          # Security severity examples
+
+          - **blocker** — user input concatenated into SQL, shell or file paths; auth check
+            removed or bypassable; secret committed; TLS verification disabled.
+          - **major** — missing rate limit on a login or token endpoint; overly broad CORS;
+            new dependency with a known critical CVE; logging of personal data.
+          - **minor** — verbose error messages exposing stack traces in non-prod paths;
+            missing security headers on internal tools.
+
+mcp_servers:
+  - name: github
+    why: Read PR details and post the approved review comment.
+    transport: http
+    url: https://api.githubcopilot.com/mcp/
+    headers:
+      Authorization: "Bearer ${GITHUB_TOKEN}"
+    docs: https://github.com/github/github-mcp-server
