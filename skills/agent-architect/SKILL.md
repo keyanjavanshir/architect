@@ -21,6 +21,7 @@ Track these phases as a checklist the user can see.
 
 ### 1. Take stock (silent, before the first question)
 
+- Note the user's operating system; it changes setup steps and rendering (Windows).
 - Detect harnesses in use: look for `.claude/`, `.github/agents/`, `.codex/`, `.gemini/`,
   `.cursor/`, `.opencode/`, `AGENTS.md`, `.agents/skills/`.
 - List existing agents, skills and MCP config so you extend rather than duplicate.
@@ -83,7 +84,8 @@ python3 scripts/render.py .agent-architect/<system>/blueprint.yaml --out . \
 The renderer writes skills once to `.agents/skills/` (plus symlinks in `.claude/skills/`
 when Claude Code is a target), one agent file per harness, and
 `.agent-architect/<system>/SETUP.md` with MCP snippets, required secrets and run commands.
-Use `--dry-run` to list files without writing. It refuses to overwrite files it did not
+On Windows, pass `--no-symlinks`: symlinks there need Developer Mode and Git often
+checks them out as plain files. Use `--dry-run` to list files without writing. It refuses to overwrite files it did not
 create unless you pass `--force`; ask the user before you do.
 
 [references/harnesses.md](references/harnesses.md) lists every path and field per harness.

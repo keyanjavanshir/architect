@@ -17,6 +17,8 @@ system:
   name: pr-review              # required
   description: One paragraph.  # required, used in SETUP.md
   harnesses: [claude-code, copilot-cli]   # default targets; --harness overrides
+  requirements:                # optional: tools the user installs once; listed in SETUP.md
+    - "ffmpeg on PATH (Windows: winget install Gyan.FFmpeg)"
 orchestrator: {...}            # optional; omit for a single standalone agent or skill
 agents: [...]
 skills: [...]

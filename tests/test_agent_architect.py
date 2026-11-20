@@ -102,6 +102,31 @@ class RenderBehaviour(unittest.TestCase):
             self.assertTrue((link / "SKILL.md").is_file())
             self.assertFalse((root / ".gemini").exists())
 
+    def test_copied_skills_validate_clean(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, _, _ = run(render.main, [str(EXAMPLES[0]), "--out", tmp, "--harness", "claude-code", "--no-symlinks"])
+            self.assertEqual(code, 0)
+            rep = validate.Report()
+            validate.check_project(Path(tmp), rep)
+            self.assertEqual([w for w in rep.warnings if "different content" in w], [])
+            setup = next(Path(tmp).glob(".agent-architect/*/SETUP.md")).read_text()
+            self.assertNotIn("(symlink)", setup)
+            self.assertIn("(copy of", setup)
+
+    def test_requirements_listed_in_setup(self):
+        bp = load(EXAMPLES[0])
+        bp["system"]["requirements"] = ["ffmpeg on PATH"]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_bp(Path(tmp), bp)
+            code, _, _ = run(render.main, [str(path), "--out", tmp, "--harness", "claude-code"])
+            self.assertEqual(code, 0)
+            setup = next(Path(tmp).glob(".agent-architect/*/SETUP.md")).read_text()
+            self.assertIn("## Before you start", setup)
+            self.assertIn("- ffmpeg on PATH", setup)
+        bp["system"]["requirements"] = "ffmpeg"
+        errors, _ = blueprint_lib.check_blueprint(bp)
+        self.assertTrue(any("requirements" in e for e in errors))
+
     def test_no_claude_links_without_claude(self):
         with tempfile.TemporaryDirectory() as tmp:
             run(render.main, [str(EXAMPLES[1]), "--out", tmp, "--harness", "copilot-cli"])

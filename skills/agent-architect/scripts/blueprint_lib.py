@@ -155,6 +155,9 @@ def check_blueprint(bp: dict) -> tuple[list[str], list[str]]:
     _check_name("system", system.get("name"), errors)
     if not system.get("description"):
         errors.append("system.description is required.")
+    reqs = system.get("requirements", [])
+    if not isinstance(reqs, list) or not all(isinstance(r, str) and r.strip() for r in reqs):
+        errors.append("system.requirements must be a list of non-empty strings.")
     for h in system.get("harnesses", []):
         if h not in HARNESSES:
             errors.append(f"Unknown harness '{h}'. Valid: {', '.join(HARNESSES)}.")

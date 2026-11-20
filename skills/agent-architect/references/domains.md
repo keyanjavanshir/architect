@@ -55,6 +55,11 @@ already answered: state it as an assumption instead of asking.
 **Smallest-system test.** The pack's patterns name a level for each team. Use it as your
 first recommendation, but still apply the test to this user's request.
 
+**When you depart from the pack, say so.** If the overlay's priorities differ from the
+pack's suggested build order, name the conflict and ask. If you trim the design below what
+the pack advises (fewer stills, no checkpoint, a skipped step), say which pack advice you
+are leaving out and why. Never drop a pack rule silently.
+
 **Interview.** Merge the pack's questions into the design tree, branch by branch. For each
 one: skip it if the overlay or an earlier answer settles it; otherwise ask it, with the
 pack's recommendation adjusted to what you know about this user. Pack questions come before
@@ -65,7 +70,8 @@ first, re-check anything older than its `Checked` date with `scripts/mcp_search.
 treat "none found" as a cue for an API or file export, not as a gap to fill.
 
 **Blueprint.** Shape agents after the pack's teams and expert roles; avoid its
-anti-patterns. Every irreversible action the pack names becomes a checkpoint, and every
+anti-patterns. Tools the user installs once (CLIs, libraries, LUTs, models)
+go in `system.requirements` so SETUP.md lists them. Every irreversible action the pack names becomes a checkpoint, and every
 "never" becomes a rule in the relevant agent briefs.
 
 **Playback.** Add one line: which pack and overlay shaped the design.

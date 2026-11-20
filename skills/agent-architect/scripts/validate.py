@@ -157,6 +157,13 @@ def check_toml_agent(path: Path, root: Path, rep: Report) -> None:
             rep.err(where, f"missing required '{key}'")
 
 
+def same_tree(a: Path, b: Path) -> bool:
+    """True when two skill folders hold the same files with the same bytes (e.g. --no-symlinks copies)."""
+    def files(base: Path) -> dict[str, bytes]:
+        return {str(f.relative_to(base)): f.read_bytes() for f in sorted(base.rglob("*")) if f.is_file()}
+    return files(a) == files(b)
+
+
 def check_project(root: Path, rep: Report) -> int:
     count = 0
     seen: dict[str, Path] = {}
@@ -171,7 +178,7 @@ def check_project(root: Path, rep: Report) -> int:
             name = check_skill(skill_dir, root, rep)
             if name:
                 real = skill_dir.resolve()
-                if name in seen and seen[name] != real:
+                if name in seen and seen[name] != real and not same_tree(seen[name], real):
                     rep.warn(str(skill_dir.relative_to(root)), f"skill '{name}' also exists at {seen[name].relative_to(root.resolve())} with different content")
                 seen.setdefault(name, real)
     for d, needs_name in MD_AGENT_DIRS.items():
