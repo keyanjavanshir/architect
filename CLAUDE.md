@@ -61,15 +61,16 @@ Full table: `skills/agent-architect/references/harnesses.md`. Points that drove 
 1. **No end-to-end run yet in any harness.** Render `examples/pr-review` into a scratch
    repo and run `/review-pr` in Claude Code, then `/fleet` in Copilot CLI, then the rest.
    Fix whatever the real harness disagrees with; record findings in harnesses.md.
-2. `mcp_search.py` was never run against the live registry (sandbox blocked it); it is
-   tested only against the documented response shape. Run it for real.
+2. `mcp_search.py` ran against the live registry on 2026-11-20 and works. Finding: the
+   registry lacks some vendors' official servers (Frame.io's is only in its own docs), so a
+   "No servers found" result should send the architect to the vendor's docs.
 3. Unverified details: Gemini tool names beyond `read_file`/`grep_search`/
    `run_shell_command`; Codex `bearer_token_env_var`, `env_http_headers`, `env_vars`.
 4. Model tiers map only for Claude Code (aliases) and Codex (reasoning effort).
 5. Ideas deferred from v0.1: packaging as Claude Code / Copilot plugins, evals for
    generated systems, an "extend existing system" flow with diff preview.
 6. Owner's v0.2 ideas — design review with diagrams before generating, and domain expert
-   packs plus a domain-scout skill (planned as a separate repository). Model/effort
+   packs plus a domain-scout skill (now github.com/keyanjavanshir/domain-scout). Model/effort
    recommendations were considered and dropped. Design notes in [docs/ideas.md](docs/ideas.md).
 
 ## Owner

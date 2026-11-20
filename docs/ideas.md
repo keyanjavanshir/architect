@@ -86,7 +86,9 @@ the MCP and skill recommendations far better.
 - Quality bar for generated packs: required source count, user review before first use,
   paraphrase only (no copied text).
 
-**Decision (2026-11-20): separate repository.** Packs and `domain-scout` live in their own
+**Decision (2026-11-20): separate repository** —
+[keyanjavanshir/domain-scout](https://github.com/keyanjavanshir/domain-scout), started with a
+`creative-direction-film` pack. Packs and `domain-scout` live in their own
 repo; agent-architect fetches only the pack(s) a request needs and falls back to its generic
 interview when offline. Packs then version, grow and take contributions independently.
 
