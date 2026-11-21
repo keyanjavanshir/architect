@@ -255,6 +255,26 @@ class BlueprintChecks(unittest.TestCase):
         bp["agents"][0]["prompt"] = "line\n" * 90
         self.assertTrue(any("max 80" in e for e in self.errors(bp)))
 
+    def test_run_waves(self):
+        bp = load(EXAMPLES[0])
+        bp["orchestrator"]["waves"].insert(0, {"name": "prepare", "run": "python scripts/prep.py --out work"})
+        errors, _ = blueprint_lib.check_blueprint(bp)
+        self.assertEqual(errors, [])
+        body = render.orchestrator_body(bp)
+        self.assertIn("(script, no agent)", body)
+        self.assertIn("`python scripts/prep.py --out work`", body)
+        self.assertIn("script: python scripts/prep.py", blueprint_lib.summary(bp))
+        bad = copy.deepcopy(bp)
+        bad["orchestrator"]["waves"][0]["agents"] = ["docs-reviewer"]
+        bad["orchestrator"]["waves"][0]["for_each"] = "file"
+        errors, _ = blueprint_lib.check_blueprint(bad)
+        self.assertTrue(any("not both" in e for e in errors))
+        self.assertTrue(any("cannot use for_each" in e for e in errors))
+        bad = copy.deepcopy(bp)
+        bad["orchestrator"]["waves"][0]["run"] = "deploy --token ghp_abcdefghijklmnopqrstuvwxyz0123"
+        errors, _ = blueprint_lib.check_blueprint(bad)
+        self.assertTrue(any("literal secret" in e for e in errors))
+
     def test_bad_names_and_refs(self):
         bp = copy.deepcopy(self.bp)
         bp["agents"][0]["name"] = "Security_Reviewer"

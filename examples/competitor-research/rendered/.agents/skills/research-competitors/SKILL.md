@@ -42,7 +42,9 @@ Sub-agents start with no memory of this conversation. Every brief contains:
 2. **Inputs** — the content itself, or exact paths, URLs or IDs.
 3. **Scope** — the files it owns for this run and anything off limits.
 4. **Context** — decisions already made that constrain the work.
-5. **Return** — the format the agent's definition asks for.
+5. **Return** — the format the agent's definition asks for, in at most five lines plus file paths; details belong in files, not in this conversation.
+
+Start a fresh agent for follow-up work instead of resuming one that has been idle for more than a few minutes; give it only the files it needs.
 
 ## Failures
 

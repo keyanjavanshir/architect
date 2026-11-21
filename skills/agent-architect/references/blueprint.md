@@ -43,9 +43,13 @@ sub-agents in every harness).
 | `on_failure` | no | `retry-once` (default), `skip-and-report`, or `stop`. |
 | `output` | yes | The final deliverable and where it goes. |
 
-A wave:
+A wave runs agents, or a script with no agent (`run`). Prefer `run` for any step a script
+or local model can do: it costs no tokens and gives the same result every time.
 
 ```yaml
+- name: sample                  # a script step: the orchestrator runs it, no agent
+  run: python scripts/sample.py --out work/stills inputs/
+  pass: Tell the user how many items it processed.   # optional note for the orchestrator
 - name: review                  # kebab-case, unique
   agents: [security-reviewer, test-reviewer]
   for_each: changed package     # optional: one instance per item; describe the unit

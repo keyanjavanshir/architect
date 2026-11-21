@@ -166,6 +166,15 @@ def orchestrator_body(bp: dict) -> str:
         if wname in cps_before:
             lines += ["", f"**Checkpoint:** stop and ask the user: \"{cps_before[wname]['ask']}\" Continue only on an explicit yes."]
         members = w.get("agents", [])
+        if w.get("run"):
+            lines += ["", f"### {i}. {title(wname)} (script, no agent)", ""]
+            lines.append(f"- Run this command yourself from the project root: `{w['run'].strip()}`")
+            if w.get("pass"):
+                lines.append(f"- {w['pass'].strip()}")
+            lines.append("- Report only its summary lines. If it fails, show the error and stop; do not redo the script's work by hand or with an agent.")
+            if wname in cps_after:
+                lines += ["", f"**Checkpoint:** stop and ask the user: \"{cps_after[wname]['ask']}\" Continue only on an explicit yes."]
+            continue
         mode = "in parallel" if len(members) > 1 or w.get("for_each") else "one agent"
         head = f"### {i}. {title(wname)} ({mode})"
         lines += ["", head, ""]
@@ -189,7 +198,9 @@ def orchestrator_body(bp: dict) -> str:
         "2. **Inputs** — the content itself, or exact paths, URLs or IDs.",
         "3. **Scope** — the files it owns for this run and anything off limits.",
         "4. **Context** — decisions already made that constrain the work.",
-        "5. **Return** — the format the agent's definition asks for.",
+        "5. **Return** — the format the agent's definition asks for, in at most five lines plus file paths; details belong in files, not in this conversation.",
+        "",
+        "Start a fresh agent for follow-up work instead of resuming one that has been idle for more than a few minutes; give it only the files it needs.",
         "",
         "## Failures",
         "",

@@ -291,8 +291,19 @@ def check_blueprint(bp: dict) -> tuple[list[str], list[str]]:
                 errors.append(f"orchestrator: duplicate wave name '{wname}'.")
             wave_names.append(wname)
             members = w.get("agents") or []
+            run = w.get("run")
+            if run is not None:
+                if members:
+                    errors.append(f"wave '{wname}': use either 'agents' or 'run', not both.")
+                if not isinstance(run, str) or not run.strip():
+                    errors.append(f"wave '{wname}': 'run' must be a non-empty command.")
+                if w.get("for_each"):
+                    errors.append(f"wave '{wname}': a 'run' wave cannot use for_each; let the script loop.")
+                if isinstance(run, str) and find_literal_secrets(run):
+                    errors.append(f"wave '{wname}': 'run' contains what looks like a literal secret. Use ${{VAR}}.")
+                continue
             if not members:
-                errors.append(f"wave '{wname}': lists no agents.")
+                errors.append(f"wave '{wname}': lists no agents (or give a 'run' command).")
             for an in members:
                 if an not in agents:
                     errors.append(f"wave '{wname}': agent '{an}' is not defined.")
@@ -336,7 +347,8 @@ def summary(bp: dict) -> str:
         out.append(f"\nOrchestrator skill: /{orch.get('name')}  (manual only: {orch.get('manual_only')})")
         for i, w in enumerate(orch.get("waves", []), 1):
             fe = f", one per {w['for_each']}" if w.get("for_each") else ""
-            out.append(f"  Wave {i} {w.get('name')}: {', '.join(w.get('agents', []))}{fe}")
+            who = f"script: {w['run'].strip()}" if w.get("run") else ", ".join(w.get("agents", []))
+            out.append(f"  Wave {i} {w.get('name')}: {who}{fe}")
         for cp in orch.get("checkpoints", []):
             where = f"after {cp['after']}" if cp.get("after") else f"before {cp.get('before')}"
             out.append(f"  Checkpoint {where}: {cp.get('ask')}")
