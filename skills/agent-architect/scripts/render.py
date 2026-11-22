@@ -579,7 +579,7 @@ def main(argv=None) -> int:
     for rel in managed:
         p = out / rel
         if (p.exists() or p.is_symlink()) and rel not in previous:
-            if p.is_symlink() and rel in dict(links) and os.readlink(p) == dict(links)[rel]:
+            if p.is_symlink() and rel in dict(links) and Path(os.readlink(p)) == Path(dict(links)[rel]):
                 continue
             if p.is_file() and rel in files and p.read_text(encoding="utf-8", errors="replace") == files[rel]:
                 continue
@@ -635,7 +635,7 @@ def main(argv=None) -> int:
             print(f"copied {src}")
             continue
         try:
-            p.symlink_to(dst, target_is_directory=True)
+            p.symlink_to(Path(dst), target_is_directory=True)
             print(f"linked {src} -> {dst}")
         except OSError:
             shutil.copytree(target, p)
