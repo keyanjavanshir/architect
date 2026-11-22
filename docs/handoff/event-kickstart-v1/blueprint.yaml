@@ -1,0 +1,807 @@
+version: 1
+
+system:
+  name: event-kickstart
+  description: >-
+    Gets a solo creative director started on an event aftermovie or short commercial.
+    Before the event it writes a creative direction for the run-and-gun shoot. After the
+    event it scouts every proxy clip into stills and tags, builds a browsable contact sheet,
+    helps find remembered shots, reads the user's references, and pitches two or three edit
+    directions with clips to start from, a music brief and, for the chosen track, a beat map
+    and sound-design cue list. Everything runs locally; agents propose, the user decides.
+  harnesses: [claude-code]
+  requirements:
+    - "Python 3.11 or later (Windows: winget install Python.Python.3.12), then: python -m pip install numpy librosa"
+    - "ffmpeg and ffprobe on PATH (Windows: winget install Gyan.FFmpeg); check with ffmpeg -version"
+    - "Panasonic's V-Log / V-Log L to V-709 LUT (.cube) from Panasonic's LUT support page, saved as luts/V-Log_to_V-709.cube"
+    - "Per project: brief.md (a few lines), proxies/ (proxy exports from your editor, e.g. 1280x720 H.264), optional references/ with notes.md, optional picks/"
+
+orchestrator:
+  name: kickstart
+  description: >-
+    Runs the event kickstart: a creative direction before an event, or after it, footage
+    scouting, a contact sheet, edit directions, a music brief and a beat map. Use when the
+    user wants help getting started on an aftermovie or event edit, says "kickstart",
+    "before the event" or "after the event", or drops new proxies to work through.
+  argument_hint: "before | after"
+  instructions: |
+    **Mode.** The argument is `before` or `after`. If missing, ask. In `before` mode run
+    only the waves `references`, `direct` and `music`; skip the rest.
+
+    **Inputs** (all relative to the project root; never write outside `kickstart/`):
+    - `brief.md` — required. If missing, ask the user for: the feeling, must-haves, length,
+      platforms, deadline; write their answer to `brief.md`.
+    - `references/` — optional: stills, screenshots, links, and `notes.md` with what the
+      user likes in each.
+    - `proxies/` — required in `after` mode. Proxy clips only; never the camera originals.
+    - `picks/` — optional: clips the user already likes (files or a list of file names).
+    - `luts/` — the conversion LUT for log footage, e.g. `luts/V-Log_to_V-709.cube`.
+      If none is there in `after` mode, say stills will look flat and ask whether to go on.
+    - `kickstart/vision.md` — written by an earlier `before` run, if any.
+
+    **Preparation (`after` mode).**
+    1. Check that `ffmpeg -version` and `python --version` work. If not, stop and point to
+       the setup steps in `.agent-architect/event-kickstart/SETUP.md`.
+    2. List the clips in `proxies/` in file-name order and split them into batches of 30.
+       Name them `batch-01`, `batch-02`, … and write the list to `kickstart/batches.md`.
+    3. Tell the user how many clips and batches there are before starting.
+
+    **Zoom pass.** The `direct` wave may return "closer look" requests (clip, start, end).
+    If it does, run the `zoom` wave with one item per request, named `zoom-01`, `zoom-02`,
+    …; if not, skip `zoom` and `refine`.
+
+    **Picks checkpoint.** At the checkpoint after `contact-sheet`, the user may describe
+    shots they remember or give file names. For each message, dispatch `clip-assist` with
+    the task "find" and the user's words; show its candidates with their still paths; when
+    the user confirms, dispatch `clip-assist` with the task "confirm" and the clips. Repeat
+    until the user says go.
+
+    **Never** send files to the client, upload media anywhere, or download or license
+    music. The user does all of that.
+  waves:
+    - name: references
+      agents: [reference-analyst]
+      pass: The brief, and the path `references/` (it may be empty or missing).
+    - name: scout
+      agents: [footage-scout]
+      for_each: batch of about 30 proxy clips (batch-01, batch-02, …)
+      max_parallel: 5
+      pass: >-
+        Task "scout", the batch id, the list of clip paths in the batch, the LUT path (or
+        "none"), and the shot wishlist from `kickstart/vision.md` if it exists.
+    - name: contact-sheet
+      agents: [clip-assist]
+      pass: Task "build". The paths `kickstart/stills/` and `picks/`.
+    - name: direct
+      agents: [director]
+      pass: >-
+        The mode, the brief, and the paths `kickstart/references.md`, `kickstart/log/`,
+        `kickstart/picks.md`, `kickstart/vision.md` (if present) and `kickstart/stills/`.
+    - name: zoom
+      agents: [footage-scout]
+      for_each: closer-look request from the director (zoom-01, zoom-02, …)
+      max_parallel: 5
+      pass: Task "zoom", the zoom id, the clip path, start and end seconds, the LUT path.
+    - name: refine
+      agents: [director]
+      pass: Task "refine", and the paths of the zoom logs `kickstart/log/zoom-*.md`.
+    - name: music
+      agents: [music-brief]
+      pass: >-
+        The path of the directions file (`kickstart/directions.md` after the event,
+        `kickstart/vision.md` before it), and the brief.
+    - name: beat-map
+      agents: [beat-mapper]
+      pass: >-
+        The chosen direction (name or number), the track file in `kickstart/track/`, and
+        the path `kickstart/directions.md`.
+  checkpoints:
+    - after: contact-sheet
+      ask: >-
+        The contact sheet is ready at kickstart/contact-sheet.html. Tell me any shots you
+        remember (a description or a file name) and I'll find them, or say go.
+    - before: beat-map
+      ask: >-
+        Which direction do you want to cut? Download a track you like (the music brief has
+        search terms) into kickstart/track/ and tell me when it is there.
+  on_failure: retry-once
+  output: >-
+    After the event: `kickstart/contact-sheet.html`, `kickstart/directions.md` (two or three
+    edit directions with clips to start from), `kickstart/music.md` and, once a track is
+    chosen, `kickstart/track-map.md`. Before the event: `kickstart/vision.md` and
+    `kickstart/music.md`. Finish by telling the user which file to open first.
+
+agents:
+  - name: footage-scout
+    description: >-
+      Turns a batch of proxy clips into chosen stills and short tags, or takes a dense
+      closer look at part of one clip. Use for the scout and zoom waves of the kickstart.
+    capabilities: [read, search, edit, shell]
+    owns: ["kickstart/log/{item}.md", "kickstart/stills/{item}/**"]
+    skills: [frame-sampling, event-film-craft]
+    model: fast
+    prompt: |
+      You are an assistant editor logging footage for a solo creative director. You never
+      judge whether the film will be good; you describe what is there, precisely.
+
+      Your brief gives a task ("scout" or "zoom"), an id (e.g. batch-03 or zoom-02), clip
+      paths and a LUT path.
+
+      1. Run the frame-sampling script (see the frame-sampling skill) with
+         `--out kickstart/stills/<id>`, the LUT if there is one, and the clips. For "zoom",
+         add `--dense --start <s> --end <e>`.
+      2. Open every still it wrote. For each still write a tag of at most 12 words: what
+         is in frame, shot size (wide, medium, close), movement if obvious, and energy 1–5.
+         Note faces, crowd, stage, light effects, signage, text on screen.
+      3. Write each tag into the matching still's `tag` field in
+         `kickstart/stills/<id>/manifest.json`, and a clip-level `tag` (one line) per clip.
+      4. Write `kickstart/log/<id>.md`: one section per clip with its file name, duration,
+         one-line summary and a bullet per still (`time — tag — still file`). End with
+         "Standouts": up to five stills from the batch worth a closer look, and why.
+
+      If a shot wishlist is in your brief, mark stills that match a wishlist item with
+      `[wishlist: <item>]`.
+
+      Rules: never modify, move or copy the clips. Write only inside your own id's log file
+      and stills folder. If a clip fails, record the error in the log and continue.
+    returns: |
+      One line per clip: `file — stills — summary`, then the Standouts list. Under 40 lines.
+
+  - name: reference-analyst
+    description: >-
+      Reads the user's references (stills, screenshots, links, notes on what they like) and
+      describes what each offers an edit. Use in the references wave of the kickstart.
+    capabilities: [read, search, edit, web]
+    owns: ["kickstart/references.md"]
+    skills: [event-film-craft]
+    model: balanced
+    prompt: |
+      You study reference work for a solo creative director: other artists' films, ads,
+      aftermovies, stills.
+
+      1. Read `references/notes.md` first if it exists. What the user says they like in a
+         reference is the most important input; build on it, never override it.
+      2. Look at every image in `references/`. For links, read the page for title, maker
+         and description. You cannot watch video from a link: say so, and suggest the user
+         adds a few screenshots of that reference.
+      3. For each reference describe: look (light, colour, contrast, texture), framing and
+         camera movement, pacing and cutting, structure, sound and music feel, and the one
+         idea worth borrowing. Keep each to six lines.
+      4. Finish with "Common thread": what the references share, in three bullets, and
+         "Tension": where they pull in different directions.
+
+      Write the result to `kickstart/references.md`. If there are no references, write a
+      one-line file saying so, and return that.
+    returns: |
+      The Common thread and Tension sections, plus a count of references read and any links
+      that need screenshots.
+
+  - name: clip-assist
+    description: >-
+      Builds the browsable contact sheet and finds clips the user remembers, from a
+      description or a file name, then records confirmed picks. Use for the contact-sheet
+      wave and whenever the user describes a shot they want.
+    capabilities: [read, search, edit, shell]
+    owns: ["kickstart/contact-sheet.html", "kickstart/picks.md"]
+    skills: [contact-sheet]
+    model: fast
+    prompt: |
+      You help a creative director find the shots they remember.
+
+      Task "build": run the contact-sheet script (see the contact-sheet skill) over
+      `kickstart/stills/`, marking clips listed in `picks/` and `kickstart/picks.md`.
+      Copy any picks from `picks/` (file names) into `kickstart/picks.md` first.
+
+      Task "find": the user describes a shot ("the DJ with green lasers") or gives a file
+      name. Search the logs in `kickstart/log/` and the tags in the manifests. Return up to
+      five candidates, best first: file name, time, tag, still path, and why it matches.
+      If nothing fits, say what the closest tags were. Do not record anything yet.
+
+      Task "confirm": add the confirmed clips to `kickstart/picks.md`, one bullet each:
+      `file — time — the user's words`. Then rebuild the contact sheet so picks are marked.
+
+      Never change the logs, the stills or the manifests.
+    returns: |
+      For "build": the contact sheet path and the number of clips and picks.
+      For "find": the candidate list. For "confirm": the updated picks list.
+
+  - name: director
+    description: >-
+      The sparring partner: pitches two or three edit directions (or, before the event, a
+      creative direction for the shoot) from the brief, references, footage log and picks,
+      and argues against its own favourite. Use for the direct and refine waves.
+    capabilities: [read, search, edit]
+    owns: ["kickstart/directions.md", "kickstart/vision.md"]
+    skills: [event-film-craft]
+    model: strong
+    prompt: |
+      You are the second creative voice a solo creative director does not have. You pitch,
+      challenge and inspire. You never decide: the user chooses.
+
+      Read the brief, `kickstart/references.md`, and the event-film-craft skill.
+
+      **Before mode** (no footage): write `kickstart/vision.md` — intent in two sentences,
+      look and feel, the references that matter and why, three angles for the edit (one
+      line each), and for each angle a shot wishlist of 8–12 moments to capture
+      run-and-gun. End with "Must not miss": the five shots every angle needs.
+
+      **After mode**: read the logs in `kickstart/log/` and `kickstart/picks.md`. The
+      user's picks count most: build at least one direction around them. Then write
+      `kickstart/directions.md` with two or three directions. Each has:
+      - a name and the idea in one sentence;
+      - a structure: sections (e.g. build, peak, outro) with target timings for the length
+        in the brief, and what happens in each;
+      - "Start here": 5–8 clips with times, in the order you would lay them down;
+      - an opening hook for the first three seconds;
+      - the strongest objection to this direction, from the client's point of view.
+      If `kickstart/vision.md` exists, start with "Plan vs footage": what was got, what was
+      missed, what surprised.
+
+      If some clips look promising but the stills are not enough, list up to five
+      "closer look" requests (clip, start, end, what you hope to find) at the end of your
+      return. Task "refine": read the zoom logs and update the directions file.
+
+      Rules: every clip you name must exist in the logs. Ground every choice in the brief,
+      the references or the footage; say which.
+    returns: |
+      The direction names with their one-sentence ideas, which direction you would argue
+      for and why (one line), and any closer-look requests as `clip | start | end | why`.
+
+  - name: music-brief
+    description: >-
+      Writes a music brief per direction — mood, tempo range, energy curve, search terms for
+      Pixabay Music — so the user can find a fitting track fast. Use in the music wave.
+    capabilities: [read, search, edit]
+    owns: ["kickstart/music.md"]
+    skills: [event-film-craft]
+    model: balanced
+    prompt: |
+      You are a music supervisor's assistant for a solo creative director who finds tracks
+      on Pixabay Music today and may move to Epidemic Sound later.
+
+      Read the directions file and the brief. For each direction write:
+      - mood in three words, genre or style, and a BPM range;
+      - the energy curve the track needs, matched to the direction's sections and timings
+        (e.g. "quiet 0–8 s, build to 20 s, drop at 20 s, peak to 45 s, outro");
+      - what to avoid (e.g. vocals over speech moments, a drop too late for the length);
+      - 4–6 search terms to paste into Pixabay Music, from broad to specific;
+      - one line on sound design that would lift this direction.
+
+      Write the result to `kickstart/music.md`. You do not search, download or license
+      tracks: the user listens and chooses.
+    returns: |
+      One line per direction: mood, BPM range, the first search term.
+
+  - name: beat-mapper
+    description: >-
+      Maps the chosen track's tempo, bars and energy onto the chosen direction and drafts a
+      sound-design cue list. Use after the user has dropped a track into kickstart/track/.
+    capabilities: [read, search, edit, shell]
+    owns: ["kickstart/track-map.md", "kickstart/track-map.json"]
+    skills: [beat-map, event-film-craft]
+    model: fast
+    prompt: |
+      You line an edit up with its music.
+
+      1. Run the beat-map script (see the beat-map skill) on the track in
+         `kickstart/track/`, writing `kickstart/track-map.json`.
+      2. Read the chosen direction in `kickstart/directions.md`. Map its sections onto the
+         track's bars: where each section starts and ends in the music, where the drop
+         lands, and which "Start here" clips fit which bars.
+      3. Draft a sound-design cue list, sparse on purpose: ambience and natural sound beds,
+         moments of real sound to keep, J- and L-cuts, and at most a few risers, whooshes or
+         impacts, each with the time and the reason.
+
+      Write `kickstart/track-map.md` with: tempo and length, a section table (section,
+      bars, start–end seconds, energy, clips), and the cue list. If the track is much
+      longer or shorter than the target length, suggest where to cut or loop.
+    returns: |
+      Tempo, where the drop is, and the section table. Under 30 lines.
+
+skills:
+  - name: event-film-craft
+    description: >-
+      What makes a great event aftermovie or short commercial: structures, energy, hooks,
+      music and sound design. Use when pitching, judging or describing an edit direction,
+      footage, references or music for an event film.
+    body: |
+      # Event film craft
+
+      Shared knowledge for everyone working on the kickstart. Clients judge first by
+      **energy and the edit**, then by **the look**. The person you work for likes
+      story-led edits, but the client's happiness comes first.
+
+      ## What good looks like
+
+      - A clear build, a peak that lands, and an ending. The stronger the build, the harder
+        the peak hits.
+      - Music placed first; its own shape (quiet intro, rising middle, drop) gives the cuts.
+      - Cuts on musical accents, not on every beat. Vary the pace.
+      - Real faces and moments over generic wide shots. A person or moment to follow turns
+        a montage into a story, when the footage allows it.
+      - A hook in the first three seconds. Social versions must work without sound.
+      - Restrained sound design: transition sounds peak on the cut, effects mark only
+        moments that matter, natural sound gives the film air.
+
+      ## Energy scale used in tags
+
+      | Energy | Looks like |
+      |---|---|
+      | 1 | Empty room, set-up, details, calm |
+      | 2 | People arriving, talking, walking |
+      | 3 | Engaged crowd, a speech landing, movement |
+      | 4 | Dancing, cheering, fast movement, light effects |
+      | 5 | The peak: drop, confetti, everyone moving |
+
+      ## Vocabulary
+
+      Selects, stringout, proxy, log profile, conversion LUT, structure, energy curve,
+      drop, hook, riser, whoosh, impact, J-cut, L-cut, natural sound. Use these words.
+
+      Read the structures reference when writing directions; read the music and sound
+      reference when writing a music brief or cue list.
+    references:
+      - path: structures.md
+        when: read when proposing or judging an edit structure
+        content: |
+          # Structures for event films
+
+          - **Build → peak → outro.** Arrival and details build anticipation; the peak is
+            the event at full energy; the outro lands on a quiet, human moment or the logo.
+            The default for aftermovies.
+          - **Follow one person.** A guest, artist or organiser carries the film from
+            arrival to peak. Needs enough clips of the same person.
+          - **Day in one breath.** Strict chronology, time stamps or light changing from
+            day to night. Works when the event has a strong arc of its own.
+          - **Contrast.** Quiet versus loud, before versus during, empty versus full.
+            Strong hook; needs matching shots on both sides.
+          - **Sound-led.** A speech, chant or crowd sound becomes the spine; music
+            supports it. Needs clean audio.
+
+          Timing for a 60–90 s aftermovie, roughly: hook 0–3 s, build to about a third,
+          peak through the middle, outro in the last 10–15 s. Scale for other lengths.
+          For a short commercial (15–30 s): hook, one idea, one peak, the message or logo.
+      - path: music-and-sound.md
+        when: read when writing a music brief, a beat map or a sound-design cue list
+        content: |
+          # Music and sound
+
+          - Choose a track whose shape fits the structure: a quiet intro for the build, a
+            clear rise, a drop at the planned peak time. A great track with the drop in the
+            wrong place costs more editing than an average one that fits.
+          - Tempo guide: 90–110 BPM relaxed and warm, 115–128 BPM most party and festival
+            edits, 130+ BPM very high energy. Half-time feel slows the perception.
+          - Avoid vocals over moments where people speak on camera.
+          - Sound layers, bottom up: ambience bed (room, crowd), natural sound moments kept
+            in the clear (a cheer, a laugh, a glass), music, then effects.
+          - Effects: a riser into the drop, a whoosh on a fast transition, an impact on the
+            first beat of the peak. A few, not on every cut. Silence before a drop adds
+            weight.
+          - J-cut: hear the next scene before seeing it. L-cut: let a sound carry over the
+            cut. Both smooth transitions without effects.
+
+  - name: frame-sampling
+    description: >-
+      Script and rules for picking and extracting stills from proxy clips, with the log to
+      Rec.709 conversion LUT applied. Use when scouting footage or taking a closer look at
+      part of a clip.
+    body: |
+      # Frame sampling
+
+      The script picks stills by rule, so the same clip always gives the same stills:
+      shot changes, a steady interval in long clips, loud audio moments; it skips blurry
+      and black frames and keeps at most 8 per clip. `--dense` takes one per second.
+
+      ## Run it
+
+      From the project root:
+
+      ```
+      python .agents/skills/frame-sampling/scripts/sample_frames.py --out kickstart/stills/<id> --lut luts/V-Log_to_V-709.cube proxies/CLIP1.MOV proxies/CLIP2.MOV
+      ```
+
+      Closer look at part of a clip:
+
+      ```
+      python .agents/skills/frame-sampling/scripts/sample_frames.py --out kickstart/stills/<id> --dense --start 12 --end 30 --lut luts/V-Log_to_V-709.cube proxies/CLIP.MOV
+      ```
+
+      It writes JPEG stills (640 px wide) and `manifest.json` with each still's file,
+      time, reason and an empty `tag` for you to fill.
+
+      ## Notes
+
+      - Needs `ffmpeg` and `ffprobe` on PATH, and Python with `numpy`.
+      - On Windows use `python` (or `py`). Paths with spaces need quotes. The script
+        handles drive letters in the LUT path.
+      - Log footage (V-Log L) looks flat without the LUT. Judge colour and energy only on
+        stills with the LUT applied. Without one, say so in the log.
+      - The clips are read, never changed.
+    scripts:
+      - path: sample_frames.py
+        content: |
+          #!/usr/bin/env python3
+          """Pick and extract the stills worth looking at from video clips.
+
+          Usage:
+            python sample_frames.py --out kickstart/stills/batch-01 --lut V-Log_to_V-709.cube CLIP [CLIP ...]
+            python sample_frames.py --out kickstart/stills/zoom-01 --dense --start 12 --end 30 CLIP
+
+          Default mode picks moments by: shot changes, a steady interval in long clips, loud audio
+          moments; it skips blurry and black frames and keeps at most --max stills per clip.
+          --dense takes one still per second (optionally between --start and --end seconds).
+          The LUT (a .cube file) is applied to stills only; clips are never modified.
+          Writes JPEG stills and manifest.json into --out. Needs ffmpeg/ffprobe on PATH and numpy.
+          """
+
+          from __future__ import annotations
+
+          import argparse
+          import json
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          import numpy as np
+
+          W, H, FPS = 160, 90, 2          # analysis size and rate
+          AUDIO_RATE, AUDIO_WIN = 8000, 0.5
+
+
+          def run(cmd: list[str]) -> bytes:
+              return subprocess.run(cmd, check=True, capture_output=True).stdout
+
+
+          def duration(clip: Path) -> float:
+              out = run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(clip)])
+              return float(out.strip() or 0)
+
+
+          def analysis_frames(clip: Path) -> np.ndarray:
+              raw = run(["ffmpeg", "-v", "error", "-i", str(clip), "-vf", f"fps={FPS},scale={W}:{H}",
+                         "-pix_fmt", "gray", "-f", "rawvideo", "-"])
+              n = len(raw) // (W * H)
+              return np.frombuffer(raw[: n * W * H], dtype=np.uint8).reshape(n, H, W).astype(np.float32)
+
+
+          def audio_rms(clip: Path) -> np.ndarray:
+              try:
+                  raw = run(["ffmpeg", "-v", "error", "-i", str(clip), "-vn", "-ac", "1", "-ar", str(AUDIO_RATE),
+                             "-f", "s16le", "-"])
+              except subprocess.CalledProcessError:
+                  return np.zeros(0)
+              samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
+              win = int(AUDIO_RATE * AUDIO_WIN)
+              n = len(samples) // win
+              if n == 0:
+                  return np.zeros(0)
+              return np.sqrt((samples[: n * win].reshape(n, win) ** 2).mean(axis=1))
+
+
+          def sharpness(frame: np.ndarray) -> float:
+              lap = (-4 * frame[1:-1, 1:-1] + frame[:-2, 1:-1] + frame[2:, 1:-1] + frame[1:-1, :-2] + frame[1:-1, 2:])
+              return float(lap.var())
+
+
+          def candidates(frames: np.ndarray, rms: np.ndarray, length: float, interval: float) -> list[tuple[float, str]]:
+              found: list[tuple[float, str]] = [(min(0.5, length / 2), "start")]
+              if len(frames) > 2:
+                  diff = np.abs(np.diff(frames, axis=0)).mean(axis=(1, 2))
+                  limit = max(12.0, float(diff.mean() + 2.5 * diff.std()))
+                  found += [((i + 1) / FPS, "shot change") for i in np.where(diff > limit)[0]]
+              if length > 2 * interval:
+                  found += [(t, "interval") for t in np.arange(interval, length - 1, interval)]
+              elif length > 3:
+                  found.append((length / 2, "interval"))
+              if len(rms) > 4:
+                  loud = np.where(rms > max(2.0 * np.median(rms), np.percentile(rms, 90)))[0]
+                  for i in sorted(loud, key=lambda i: -rms[i])[:3]:
+                      found.append(((i + 0.5) * AUDIO_WIN, "loud moment"))
+              return found
+
+
+          PRIORITY = {"shot change": 0, "loud moment": 1, "start": 2, "interval": 3}
+
+
+          def choose(found, frames, length, max_stills, min_gap=1.5):
+              sharp = np.array([sharpness(f) for f in frames]) if len(frames) else np.zeros(0)
+              bright = frames.mean(axis=(1, 2)) if len(frames) else np.zeros(0)
+              floor = 0.2 * float(np.median(sharp)) if len(sharp) else 0
+              picked: list[tuple[float, str]] = []
+              for t, why in sorted(found, key=lambda c: (PRIORITY[c[1]], c[0])):
+                  if len(frames):  # move to the sharpest analysed frame within half a second
+                      lo, hi = max(0, int((t - 0.5) * FPS)), min(len(frames), int((t + 0.5) * FPS) + 1)
+                      if lo < hi:
+                          best = lo + int(np.argmax(sharp[lo:hi]))
+                          if sharp[best] < floor or bright[best] < 12:
+                              continue  # blurry or black
+                          t = best / FPS
+                  t = min(max(t, 0.0), max(length - 0.1, 0.0))
+                  if any(abs(t - p) < min_gap for p, _ in picked):
+                      continue
+                  picked.append((round(t, 2), why))
+                  if len(picked) >= max_stills:
+                      break
+              return sorted(picked)
+
+
+          def lut_filter(lut: Path | None) -> str:
+              if not lut:
+                  return ""
+              path = lut.resolve().as_posix().replace(":", r"\:")  # Windows drive letters break filter syntax
+              return f"lut3d=file='{path}',"
+
+
+          def extract(clip: Path, t: float, dest: Path, lut: Path | None, width: int) -> None:
+              run(["ffmpeg", "-v", "error", "-y", "-ss", f"{t:.2f}", "-i", str(clip), "-frames:v", "1",
+                   "-vf", f"{lut_filter(lut)}scale={width}:-2", "-q:v", "3", str(dest)])
+
+
+          def main(argv: list[str] | None = None) -> int:
+              ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+              ap.add_argument("clips", nargs="+", type=Path)
+              ap.add_argument("--out", required=True, type=Path)
+              ap.add_argument("--lut", type=Path, help="conversion LUT (.cube), e.g. V-Log to V-709")
+              ap.add_argument("--max", type=int, default=8, help="most stills per clip (default 8)")
+              ap.add_argument("--interval", type=float, default=4.0, help="seconds between interval stills")
+              ap.add_argument("--dense", action="store_true", help="one still per second")
+              ap.add_argument("--start", type=float, default=0.0)
+              ap.add_argument("--end", type=float)
+              ap.add_argument("--width", type=int, default=640)
+              args = ap.parse_args(argv)
+
+              if args.lut and not args.lut.is_file():
+                  sys.exit(f"LUT not found: {args.lut}")
+              args.out.mkdir(parents=True, exist_ok=True)
+              manifest = {"clips": []}
+              for clip in args.clips:
+                  entry = {"clip": clip.name, "path": str(clip), "stills": []}
+                  try:
+                      length = duration(clip)
+                      if args.dense:
+                          end = min(args.end or length, length)
+                          picks = [(round(t, 2), "dense") for t in np.arange(args.start, end, 1.0)]
+                      else:
+                          frames = analysis_frames(clip)
+                          picks = choose(candidates(frames, audio_rms(clip), length, args.interval), frames, length, args.max)
+                      entry["duration"] = round(length, 2)
+                      for t, why in picks:
+                          name = f"{clip.stem}_{int(t * 100):07d}.jpg"
+                          extract(clip, t, args.out / name, args.lut, args.width)
+                          entry["stills"].append({"file": name, "time": t, "why": why, "tag": ""})
+                  except (subprocess.CalledProcessError, ValueError) as exc:
+                      entry["error"] = str(exc)
+                  manifest["clips"].append(entry)
+                  print(f"{clip.name}: {len(entry['stills'])} stills" + (f" (error: {entry['error']})" if "error" in entry else ""))
+              (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+              return 0
+
+
+          if __name__ == "__main__":
+              sys.exit(main())
+  - name: contact-sheet
+    description: >-
+      Script that builds an offline, browsable HTML contact sheet from the footage-scout
+      manifests, with a filter box and picks marked. Use when building or rebuilding the
+      contact sheet.
+    body: |
+      # Contact sheet
+
+      ```
+      python .agents/skills/contact-sheet/scripts/build_contact_sheet.py --stills kickstart/stills --picks kickstart/picks.md --out kickstart/contact-sheet.html
+      ```
+
+      Shows clips in shooting order (file-name order) with their stills, the time and
+      reason for each still, and its tag. The filter box searches clip names and tags.
+      Clips named in the picks file get a ★. The page uses relative image paths, so it
+      works offline as long as it stays in `kickstart/`. Standard library only.
+    scripts:
+      - path: build_contact_sheet.py
+        content: |
+          #!/usr/bin/env python3
+          """Build a browsable contact sheet from footage-scout manifests.
+
+          Usage:
+            python build_contact_sheet.py --stills kickstart/stills --picks kickstart/picks.md --out kickstart/contact-sheet.html
+
+          Reads every */manifest.json under --stills, shows the clips in shooting order (by file name)
+          with their stills, timestamps, why each still was taken and its tag, plus a search box that
+          filters by clip name or tag. Clips listed in the picks file are marked. One offline HTML
+          file with relative image paths; open it in any browser. Standard library only.
+          """
+
+          from __future__ import annotations
+
+          import argparse
+          import html
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          PAGE = """<!doctype html>
+          <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+          <title>Contact sheet</title>
+          <style>
+          :root{{--bg:#111;--fg:#eee;--muted:#999;--card:#1c1c1c;--pick:#f5c542}}
+          body{{margin:0;padding:16px;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,sans-serif}}
+          header{{position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:1}}
+          input{{width:100%;max-width:420px;padding:8px;font:inherit;background:#222;color:var(--fg);border:1px solid #333;border-radius:6px}}
+          .clip{{background:var(--card);border-radius:8px;padding:10px;margin:12px 0}}
+          .clip.picked{{outline:2px solid var(--pick)}}
+          .clip h2{{font-size:14px;margin:0 0 4px}} .clip p{{margin:0 0 8px;color:var(--muted)}}
+          .row{{display:flex;gap:8px;overflow-x:auto}}
+          figure{{margin:0;flex:0 0 auto;width:240px}} img{{width:240px;border-radius:4px;display:block}}
+          figcaption{{font-size:12px;color:var(--muted)}}
+          .badge{{color:var(--pick);font-weight:600}}
+          </style></head><body>
+          <header><input id="q" placeholder="Filter by clip name or tag" autofocus>
+          <span id="n"></span></header>
+          {clips}
+          <script>
+          const q=document.getElementById('q'),n=document.getElementById('n'),cs=[...document.querySelectorAll('.clip')];
+          function f(){{const v=q.value.toLowerCase();let k=0;cs.forEach(c=>{{const s=c.dataset.text.includes(v);c.hidden=!s;k+=s}});n.textContent=' '+k+' clips'}}
+          q.addEventListener('input',f);f();
+          </script></body></html>"""
+
+
+          def picked_clips(picks: Path | None) -> set[str]:
+              if not picks or not picks.is_file():
+                  return set()
+              text = picks.read_text(encoding="utf-8")
+              return {m.lower() for m in re.findall(r"[\w.-]+\.(?:mov|mp4|mxf|mts|m4v)", text, re.I)}
+
+
+          def main(argv: list[str] | None = None) -> int:
+              ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+              ap.add_argument("--stills", type=Path, required=True)
+              ap.add_argument("--picks", type=Path)
+              ap.add_argument("--out", type=Path, required=True)
+              args = ap.parse_args(argv)
+
+              clips = []
+              for manifest in sorted(args.stills.glob("*/manifest.json")):
+                  data = json.loads(manifest.read_text(encoding="utf-8"))
+                  for clip in data.get("clips", []):
+                      clip["_dir"] = manifest.parent
+                      clips.append(clip)
+              if not clips:
+                  sys.exit(f"No manifests under {args.stills}")
+              clips.sort(key=lambda c: (c["clip"].lower(), str(c["_dir"])))
+              picks = picked_clips(args.picks)
+
+              parts = []
+              for clip in clips:
+                  figs, words = [], [clip["clip"], clip.get("tag", "")]
+                  for s in clip.get("stills", []):
+                      src = os.path.relpath(clip["_dir"] / s["file"], args.out.parent).replace(os.sep, "/")
+                      words.append(s.get("tag", ""))
+                      cap = f'{s["time"]:.1f}s · {html.escape(s.get("why", ""))}'
+                      if s.get("tag"):
+                          cap += f'<br>{html.escape(s["tag"])}'
+                      figs.append(f'<figure><img loading="lazy" src="{html.escape(src)}" alt=""><figcaption>{cap}</figcaption></figure>')
+                  is_pick = clip["clip"].lower() in picks
+                  badge = ' <span class="badge">★ pick</span>' if is_pick else ""
+                  summary = html.escape(clip.get("tag", "") or clip.get("error", ""))
+                  parts.append(
+                      f'<section class="clip{" picked" if is_pick else ""}" data-text="{html.escape(" ".join(words).lower())}">'
+                      f'<h2>{html.escape(clip["clip"])}{badge}</h2><p>{clip.get("duration", "?")}s{" · " + summary if summary else ""}</p>'
+                      f'<div class="row">{"".join(figs)}</div></section>'
+                  )
+              args.out.parent.mkdir(parents=True, exist_ok=True)
+              args.out.write_text(PAGE.format(clips="\n".join(parts)), encoding="utf-8")
+              print(f"Wrote {args.out} with {len(clips)} clips, {len(picks)} picks marked.")
+              return 0
+
+
+          if __name__ == "__main__":
+              sys.exit(main())
+  - name: beat-map
+    description: >-
+      Script that finds a track's tempo, bars and energy (quiet, build, drop, peak). Use
+      when lining an edit up with a chosen music track.
+    body: |
+      # Beat map
+
+      ```
+      python .agents/skills/beat-map/scripts/beat_map.py kickstart/track/<file> --out kickstart/track-map.json
+      ```
+
+      Prints tempo, length and a bar-by-bar table: start and end in seconds, energy from
+      0 to 1, and a label. "drop" marks the biggest jump into a loud passage. Bars assume
+      four beats; pass `--beats-per-bar 3` for waltz time.
+
+      Needs Python with `librosa` (`pip install librosa`). For mp3 files librosa may need
+      ffmpeg on PATH. Beat tracking can drift on tracks with a free tempo; check the drop
+      by ear before cutting to it.
+    scripts:
+      - path: beat_map.py
+        content: |
+          #!/usr/bin/env python3
+          """Map a music track's tempo, bars and energy, to line an edit up with it.
+
+          Usage:
+            python beat_map.py kickstart/track/song.mp3 --out kickstart/track-map.json
+
+          Prints tempo, duration and a bar-by-bar energy table (0-1) with a label per bar:
+          quiet, build, peak or drop (the biggest jump into a loud passage). Writes the same data
+          as JSON. Needs librosa (pip install librosa); librosa needs ffmpeg for mp3 on some systems.
+          """
+
+          from __future__ import annotations
+
+          import argparse
+          import json
+          import sys
+          from pathlib import Path
+
+          import numpy as np
+
+          try:
+              import librosa
+          except ImportError:
+              sys.exit("librosa is required: pip install librosa")
+
+
+          def analyse(path: Path, beats_per_bar: int = 4) -> dict:
+              y, sr = librosa.load(str(path), sr=22050, mono=True)
+              length = len(y) / sr
+              tempo, beats = librosa.beat.beat_track(y=y, sr=sr, units="time")
+              tempo = float(np.atleast_1d(tempo)[0])
+              beats = [float(b) for b in beats]
+              if beats and tempo > 0:  # quiet intros and outros often lose beats: extend the grid
+                  step = 60.0 / tempo
+                  before = list(np.arange(beats[0] - step, -1e-6, -step))[::-1]
+                  after = list(np.arange(beats[-1] + step, length, step))
+                  beats = [float(b) for b in before] + beats + [float(b) for b in after]
+              rms = librosa.feature.rms(y=y)[0]
+              times = librosa.times_like(rms, sr=sr)
+
+              starts = beats[::beats_per_bar] if beats else []
+              if not starts or starts[0] > 0.5:
+                  starts = [0.0] + starts
+              bounds = starts + [length]
+              energy = []
+              for a, b in zip(bounds[:-1], bounds[1:]):
+                  sel = rms[(times >= a) & (times < b)]
+                  energy.append(float(sel.mean()) if len(sel) else 0.0)
+              e = np.array(energy)
+              norm = (e - e.min()) / (e.max() - e.min()) if len(e) and e.max() > e.min() else np.zeros(len(e))
+
+              labels = []
+              for i, v in enumerate(norm):
+                  rising = i + 2 < len(norm) and norm[i + 2] - v > 0.15
+                  labels.append("peak" if v >= 0.75 else "build" if rising or v >= 0.45 else "quiet")
+              if len(norm) > 1:
+                  jumps = np.diff(norm)
+                  d = int(np.argmax(jumps)) + 1
+                  if jumps[d - 1] > 0.25:
+                      labels[d] = "drop"
+
+              bars = [{"bar": i + 1, "start": round(bounds[i], 2), "end": round(bounds[i + 1], 2),
+                       "energy": round(float(norm[i]), 2), "label": labels[i]} for i in range(len(norm))]
+              return {"track": path.name, "duration": round(length, 2), "tempo": round(tempo, 1),
+                      "beats": [round(b, 3) for b in beats], "bars": bars}
+
+
+          def main(argv: list[str] | None = None) -> int:
+              ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+              ap.add_argument("track", type=Path)
+              ap.add_argument("--out", type=Path)
+              ap.add_argument("--beats-per-bar", type=int, default=4)
+              args = ap.parse_args(argv)
+
+              data = analyse(args.track, args.beats_per_bar)
+              print(f"{data['track']}: {data['tempo']} BPM, {data['duration']} s, {len(data['bars'])} bars")
+              print("| bar | start | end | energy | label |\n|---|---|---|---|---|")
+              for b in data["bars"]:
+                  print(f"| {b['bar']} | {b['start']} | {b['end']} | {b['energy']} | {b['label']} |")
+              if args.out:
+                  args.out.parent.mkdir(parents=True, exist_ok=True)
+                  args.out.write_text(json.dumps(data, indent=2), encoding="utf-8")
+              return 0
+
+
+          if __name__ == "__main__":
+              sys.exit(main())
