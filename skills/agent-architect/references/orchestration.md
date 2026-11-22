@@ -51,6 +51,23 @@ last writer wins silently. Therefore:
   instance costs a full context.
 - Put human checkpoints between waves, never inside one.
 
+## Cost: tokens go where context is re-read
+
+Every call re-reads the agent's whole context, so cost follows context size × calls.
+
+- **Scripts first.** Script and local-model steps are `run` waves; they cost no tokens.
+- **Short hand-backs.** Agents return at most five lines plus file paths; details go in
+  files. The orchestrator's conversation grows with every hand-back and is re-read every turn.
+- **Compact inputs for judgement.** Give a judging agent a ranked digest (a shortlist with
+  measurements), not every raw log.
+- **Fresh, not resumed.** An agent idle for more than a few minutes has lost its cache;
+  resuming it re-pays its whole context. Start a fresh one with only what it needs.
+- **Images add up.** Each image an agent views stays in its context. Combine several into
+  one montage, and size batches so a context stays well under 100K tokens.
+- **Long fan-outs in the main session are costly**: each finished instance wakes the
+  orchestrator. For many units, prefer one script step that loops, or run the main
+  session on a cheaper model.
+
 ## Failure policy
 
 - `retry-once` (default): re-dispatch a failed unit once with the error in the brief.

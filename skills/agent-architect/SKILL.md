@@ -21,16 +21,20 @@ Track these phases as a checklist the user can see.
 
 ### 1. Take stock (silent, before the first question)
 
+- Note the user's operating system; it changes setup steps and rendering (Windows).
 - Detect harnesses in use: look for `.claude/`, `.github/agents/`, `.codex/`, `.gemini/`,
   `.cursor/`, `.opencode/`, `AGENTS.md`, `.agents/skills/`.
 - List existing agents, skills and MCP config so you extend rather than duplicate.
 - Read the repo's README and AGENTS.md/CLAUDE.md for context you would otherwise ask about.
 - Pick the mode: **new** system, **extend** an existing one, or **audit** (validate and
   suggest fixes; skip to step 6 with `scripts/validate.py`).
+- Look for a **domain pack** for the user's field — read
+  [references/domains.md](references/domains.md). If one matches, load it and its overlay;
+  it changes the questions you ask, the tools you suggest and the agents you design.
 
 ### 2. Interview — read [references/interview.md](references/interview.md)
 
-Walk the design tree one question at a time. Every question comes with your recommended
+Walk the design tree one question at a time, with the loaded pack's questions merged in. Every question comes with your recommended
 answer and a one-line reason. Never ask what you can find out by reading files or searching.
 Keep a running decision log. Stop when no branch is open, then play the design back as a
 short table and get an explicit "yes".
@@ -80,7 +84,8 @@ python3 scripts/render.py .agent-architect/<system>/blueprint.yaml --out . \
 The renderer writes skills once to `.agents/skills/` (plus symlinks in `.claude/skills/`
 when Claude Code is a target), one agent file per harness, and
 `.agent-architect/<system>/SETUP.md` with MCP snippets, required secrets and run commands.
-Use `--dry-run` to list files without writing. It refuses to overwrite files it did not
+On Windows, pass `--no-symlinks`: symlinks there need Developer Mode and Git often
+checks them out as plain files. Use `--dry-run` to list files without writing. It refuses to overwrite files it did not
 create unless you pass `--force`; ask the user before you do.
 
 [references/harnesses.md](references/harnesses.md) lists every path and field per harness.

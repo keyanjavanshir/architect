@@ -29,6 +29,8 @@
 
 Ask early, before you design agents. Climb only as far as the work requires:
 
+0. **No agent.** A script, a local model or a tool the user already has does the job:
+   sorting, measuring, converting, matching, building a page. Many "agent" steps are this.
 1. **One skill.** The work is sequential and fits in one context → a single skill.
 2. **Built-in fan-out.** One large mechanical change across many files → Claude Code
    `/batch` or Copilot CLI `/fleet` with a good plan. Nothing to generate except perhaps a
@@ -39,6 +41,19 @@ Ask early, before you design agents. Climb only as far as the work requires:
    review) → orchestrator, several agents, waves.
 
 Say which level you recommend and why. Most requests land on 1 or 3.
+
+Then choose the **engine for each step**, cheapest that does the job well:
+
+| The step needs… | Engine |
+|---|---|
+| A fixed procedure (split, convert, list, build a page) | Script |
+| A measurement (sharpness, loudness, tempo, counts) | Script |
+| Sorting things into known categories, or "find the one like this" | Local model (e.g. an image or text embedding model), if the user's machine can run it |
+| Summaries of many items | Script, or a small model, on files — not a cloud agent reading everything |
+| Judgement, taste, writing, choices with trade-offs | Cloud agent, with a compact input |
+
+Ask what hardware the user has (GPU, memory) before ruling local models in or out. A
+cloud agent that looks at hundreds of images or reads raw logs is a design smell.
 
 ## The design tree
 

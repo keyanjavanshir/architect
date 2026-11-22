@@ -19,6 +19,7 @@ SCRIPTS = ROOT / "skills" / "agent-architect" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import blueprint_lib  # noqa: E402
+import find_pack  # noqa: E402
 import mcp_search  # noqa: E402
 import render  # noqa: E402
 import validate  # noqa: E402
@@ -33,8 +34,23 @@ def run(fn, argv):
     return code, out.getvalue(), err.getvalue()
 
 
+def symlinks_supported():
+    """Windows refuses symlinks without Developer Mode; render.py then copies instead."""
+    with tempfile.TemporaryDirectory() as tmp:
+        target = Path(tmp) / "target"
+        target.mkdir()
+        try:
+            (Path(tmp) / "link").symlink_to(target, target_is_directory=True)
+        except OSError:
+            return False
+        return True
+
+
+SYMLINKS = symlinks_supported()
+
+
 def load(path):
-    return blueprint_lib.normalize(yaml.safe_load(Path(path).read_text()))
+    return blueprint_lib.normalize(yaml.safe_load(Path(path).read_text(encoding="utf-8")))
 
 
 def write_bp(tmp: Path, bp: dict) -> Path:
@@ -66,12 +82,12 @@ class ExampleBlueprints(unittest.TestCase):
         for f in root.rglob("*.md"):
             if f.parent.name == "references" or ".agent-architect" in f.parts:
                 continue
-            fm, body, problem = validate.split_frontmatter(f.read_text())
+            fm, body, problem = validate.split_frontmatter(f.read_text(encoding="utf-8"))
             self.assertIsNone(problem, f)
             self.assertTrue(fm.get("description"), f)
             self.assertTrue(body.strip(), f)
         for f in root.rglob("*.toml"):
-            data = tomllib.loads(f.read_text())
+            data = tomllib.loads(f.read_text(encoding="utf-8"))
             for key in ("name", "description", "developer_instructions"):
                 self.assertIn(key, data, f)
 
@@ -81,10 +97,10 @@ class ExampleBlueprints(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 run(render.main, [str(bp_path), "--out", tmp, "--harness", "all"])
                 for f in Path(tmp).rglob("*"):
-                    if f.is_file() and not f.is_symlink() and "/.claude/skills/" not in str(f):
+                    if f.is_file() and not f.is_symlink() and not f.relative_to(tmp).as_posix().startswith(".claude/skills/"):
                         rel = f.relative_to(tmp)
                         self.assertTrue((committed / rel).is_file(), f"missing {rel}; re-render examples")
-                        self.assertEqual(f.read_text(), (committed / rel).read_text(), f"{rel} is stale; re-render examples")
+                        self.assertEqual(f.read_text(encoding="utf-8"), (committed / rel).read_text(encoding="utf-8"), f"{rel} is stale; re-render examples")
 
 
 class RenderBehaviour(unittest.TestCase):
@@ -97,9 +113,34 @@ class RenderBehaviour(unittest.TestCase):
             root = Path(tmp)
             self.assertTrue((root / ".agents/skills/review-rubric/SKILL.md").is_file())
             link = root / ".claude/skills/review-rubric"
-            self.assertTrue(link.is_symlink())
+            self.assertEqual(link.is_symlink(), SYMLINKS)
             self.assertTrue((link / "SKILL.md").is_file())
             self.assertFalse((root / ".gemini").exists())
+
+    def test_copied_skills_validate_clean(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, _, _ = run(render.main, [str(EXAMPLES[0]), "--out", tmp, "--harness", "claude-code", "--no-symlinks"])
+            self.assertEqual(code, 0)
+            rep = validate.Report()
+            validate.check_project(Path(tmp), rep)
+            self.assertEqual([w for w in rep.warnings if "different content" in w], [])
+            setup = next(Path(tmp).glob(".agent-architect/*/SETUP.md")).read_text(encoding="utf-8")
+            self.assertNotIn("(symlink)", setup)
+            self.assertIn("(copy of", setup)
+
+    def test_requirements_listed_in_setup(self):
+        bp = load(EXAMPLES[0])
+        bp["system"]["requirements"] = ["ffmpeg on PATH"]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_bp(Path(tmp), bp)
+            code, _, _ = run(render.main, [str(path), "--out", tmp, "--harness", "claude-code"])
+            self.assertEqual(code, 0)
+            setup = next(Path(tmp).glob(".agent-architect/*/SETUP.md")).read_text(encoding="utf-8")
+            self.assertIn("## Before you start", setup)
+            self.assertIn("- ffmpeg on PATH", setup)
+        bp["system"]["requirements"] = "ffmpeg"
+        errors, _ = blueprint_lib.check_blueprint(bp)
+        self.assertTrue(any("requirements" in e for e in errors))
 
     def test_no_claude_links_without_claude(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -130,7 +171,7 @@ class RenderBehaviour(unittest.TestCase):
             code, _, err = run(render.main, [str(EXAMPLES[1]), "--out", tmp, "--harness", "claude-code"])
             self.assertEqual(code, 1)
             self.assertIn("security-reviewer.md", err)
-            self.assertIn("hand written", agent.read_text())
+            self.assertIn("hand written", agent.read_text(encoding="utf-8"))
 
     def test_dry_run_writes_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -229,6 +270,26 @@ class BlueprintChecks(unittest.TestCase):
         bp["agents"][0]["prompt"] = "line\n" * 90
         self.assertTrue(any("max 80" in e for e in self.errors(bp)))
 
+    def test_run_waves(self):
+        bp = load(EXAMPLES[0])
+        bp["orchestrator"]["waves"].insert(0, {"name": "prepare", "run": "python scripts/prep.py --out work"})
+        errors, _ = blueprint_lib.check_blueprint(bp)
+        self.assertEqual(errors, [])
+        body = render.orchestrator_body(bp)
+        self.assertIn("(script, no agent)", body)
+        self.assertIn("`python scripts/prep.py --out work`", body)
+        self.assertIn("script: python scripts/prep.py", blueprint_lib.summary(bp))
+        bad = copy.deepcopy(bp)
+        bad["orchestrator"]["waves"][0]["agents"] = ["docs-reviewer"]
+        bad["orchestrator"]["waves"][0]["for_each"] = "file"
+        errors, _ = blueprint_lib.check_blueprint(bad)
+        self.assertTrue(any("not both" in e for e in errors))
+        self.assertTrue(any("cannot use for_each" in e for e in errors))
+        bad = copy.deepcopy(bp)
+        bad["orchestrator"]["waves"][0]["run"] = "deploy --token ghp_abcdefghijklmnopqrstuvwxyz0123"
+        errors, _ = blueprint_lib.check_blueprint(bad)
+        self.assertTrue(any("literal secret" in e for e in errors))
+
     def test_bad_names_and_refs(self):
         bp = copy.deepcopy(self.bp)
         bp["agents"][0]["name"] = "Security_Reviewer"
@@ -312,6 +373,67 @@ class McpSearch(unittest.TestCase):
         bp["agents"][-1]["mcp"] = [e["name"] for e in entries]
         errors = blueprint_lib.check_blueprint(blueprint_lib.normalize(bp))[0]
         self.assertEqual(errors, [])
+
+
+
+def make_pack(base: Path, name: str, keywords: list[str], overlay: bool = False) -> None:
+    folder = base / name
+    folder.mkdir(parents=True)
+    fm = {"name": name, "title": name, "status": "draft", "checked": "2026-11-20", "keywords": keywords}
+    (folder / "DOMAIN.md").write_text("---\n" + yaml.safe_dump(fm) + "---\n\n# " + name + "\n")
+    if overlay:
+        (folder / "OVERLAY.md").write_text("---\nextends: " + name + "\n---\n")
+
+
+class FindPack(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.shared = self.tmp / "shared"
+        self.project = self.tmp / "project"
+        make_pack(self.shared, "creative-direction-event-film", ["aftermovie", "event video", "sound design"])
+        make_pack(self.shared, "creative-direction-film", ["video production", "commercial"])
+        self.project.mkdir()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp)
+
+    def test_ranks_by_keyword_hits(self):
+        packs = find_pack.discover([self.shared])
+        ranked = find_pack.rank("I edit an aftermovie and an event video, sound design is hard", packs)
+        self.assertEqual(ranked[0]["name"], "creative-direction-event-film")
+        self.assertEqual(ranked[0]["score"], 5)  # 1 + 2 + 2 words
+        self.assertEqual(len(ranked), 1)
+
+    def test_plurals_match(self):
+        packs = find_pack.discover([self.shared])
+        ranked = find_pack.rank("I make aftermovies and commercials", packs)
+        self.assertEqual({p["name"] for p in ranked}, {"creative-direction-event-film", "creative-direction-film"})
+
+    def test_matches_whole_words_only(self):
+        packs = find_pack.discover([self.shared])
+        self.assertEqual(find_pack.rank("commercially viable", packs), [])
+
+    def test_overlay_from_project_dir(self):
+        overlay_dir = self.project / "creative-direction-event-film"
+        overlay_dir.mkdir()
+        (overlay_dir / "OVERLAY.md").write_text("---\nextends: creative-direction-event-film\n---\n")
+        packs = find_pack.discover([self.project, self.shared])
+        self.assertTrue(packs["creative-direction-event-film"]["overlay"].endswith("OVERLAY.md"))
+        self.assertIsNone(packs["creative-direction-film"]["overlay"])
+
+    def test_project_pack_wins(self):
+        make_pack(self.project, "creative-direction-film", ["local"])
+        packs = find_pack.discover([self.project, self.shared])
+        self.assertEqual(packs["creative-direction-film"]["keywords"], ["local"])
+
+    def test_cli_exit_codes(self):
+        code, out, _ = run(find_pack.main, ["aftermovie help", "--dirs", str(self.shared)])
+        self.assertEqual(code, 0)
+        self.assertIn("creative-direction-event-film", out)
+        code, _, err = run(find_pack.main, ["tax returns", "--dirs", str(self.shared)])
+        self.assertEqual(code, 1)
+        self.assertIn("No pack matches", err)
 
 
 if __name__ == "__main__":

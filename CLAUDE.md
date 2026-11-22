@@ -38,6 +38,9 @@ conversation's context; read it before changing the design.
   Contents list. Copilot's hard limit is 30,000 chars per agent body.
 - **Parallel agents never write the same file.** The validator rejects `owns` overlaps
   inside a wave and `for_each` writers without `{item}` in their paths.
+- **Scripts before agents.** Each step gets the cheapest engine that does it well: script,
+  local model, then a cloud agent only for judgement. Script steps are `run` waves. Learned
+  from the first real run (docs/evals/2026-11-20-event-film.md): $13, most of it avoidable.
 - **No copied text** from the projects we drew on (see CREDITS.md); ideas only.
 
 ## Harness facts (checked against vendor docs, November 2026)
@@ -72,6 +75,9 @@ Full table: `skills/agent-architect/references/harnesses.md`. Points that drove 
 6. Owner's v0.2 ideas — design review with diagrams before generating, and domain expert
    packs plus a domain-scout skill (now github.com/keyanjavanshir/domain-scout). Model/effort
    recommendations were considered and dropped. Design notes in [docs/ideas.md](docs/ideas.md).
+   Domain packs are wired in: `references/domains.md` (where packs live, how each phase uses
+   them; overlay wins over pack) and `scripts/find_pack.py` (keyword match, plurals folded).
+   First live test: designing a system for the owner's `creative-direction-event-film` pack.
 
 ## Owner
 
