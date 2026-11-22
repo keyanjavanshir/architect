@@ -572,7 +572,7 @@ def main(argv=None) -> int:
     manifest_path = out / sysdir / "manifest.json"
     previous = set()
     if manifest_path.exists():
-        previous = set(json.loads(manifest_path.read_text()).get("files", []))
+        previous = set(json.loads(manifest_path.read_text(encoding="utf-8")).get("files", []))
 
     managed = set(files) | {src for src, _ in links}
     conflicts = []
@@ -642,7 +642,7 @@ def main(argv=None) -> int:
             print(f"copied {src} (symlinks unavailable)")
 
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(json.dumps({"generator": GENERATOR, "harnesses": harnesses, "files": sorted(managed)}, indent=2) + "\n")
+    manifest_path.write_text(json.dumps({"generator": GENERATOR, "harnesses": harnesses, "files": sorted(managed)}, indent=2) + "\n", encoding="utf-8")
     print(f"\nDone. Next: python3 {Path(__file__).parent / 'validate.py'} --out {args.out}")
     print(f"Then review {setup_path} with the user before enabling any MCP server.")
     return 0

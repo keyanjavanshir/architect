@@ -34,8 +34,23 @@ def run(fn, argv):
     return code, out.getvalue(), err.getvalue()
 
 
+def symlinks_supported():
+    """Windows refuses symlinks without Developer Mode; render.py then copies instead."""
+    with tempfile.TemporaryDirectory() as tmp:
+        target = Path(tmp) / "target"
+        target.mkdir()
+        try:
+            (Path(tmp) / "link").symlink_to(target, target_is_directory=True)
+        except OSError:
+            return False
+        return True
+
+
+SYMLINKS = symlinks_supported()
+
+
 def load(path):
-    return blueprint_lib.normalize(yaml.safe_load(Path(path).read_text()))
+    return blueprint_lib.normalize(yaml.safe_load(Path(path).read_text(encoding="utf-8")))
 
 
 def write_bp(tmp: Path, bp: dict) -> Path:
@@ -67,12 +82,12 @@ class ExampleBlueprints(unittest.TestCase):
         for f in root.rglob("*.md"):
             if f.parent.name == "references" or ".agent-architect" in f.parts:
                 continue
-            fm, body, problem = validate.split_frontmatter(f.read_text())
+            fm, body, problem = validate.split_frontmatter(f.read_text(encoding="utf-8"))
             self.assertIsNone(problem, f)
             self.assertTrue(fm.get("description"), f)
             self.assertTrue(body.strip(), f)
         for f in root.rglob("*.toml"):
-            data = tomllib.loads(f.read_text())
+            data = tomllib.loads(f.read_text(encoding="utf-8"))
             for key in ("name", "description", "developer_instructions"):
                 self.assertIn(key, data, f)
 
@@ -82,10 +97,10 @@ class ExampleBlueprints(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 run(render.main, [str(bp_path), "--out", tmp, "--harness", "all"])
                 for f in Path(tmp).rglob("*"):
-                    if f.is_file() and not f.is_symlink() and "/.claude/skills/" not in str(f):
+                    if f.is_file() and not f.is_symlink() and not f.relative_to(tmp).as_posix().startswith(".claude/skills/"):
                         rel = f.relative_to(tmp)
                         self.assertTrue((committed / rel).is_file(), f"missing {rel}; re-render examples")
-                        self.assertEqual(f.read_text(), (committed / rel).read_text(), f"{rel} is stale; re-render examples")
+                        self.assertEqual(f.read_text(encoding="utf-8"), (committed / rel).read_text(encoding="utf-8"), f"{rel} is stale; re-render examples")
 
 
 class RenderBehaviour(unittest.TestCase):
@@ -98,7 +113,7 @@ class RenderBehaviour(unittest.TestCase):
             root = Path(tmp)
             self.assertTrue((root / ".agents/skills/review-rubric/SKILL.md").is_file())
             link = root / ".claude/skills/review-rubric"
-            self.assertTrue(link.is_symlink())
+            self.assertEqual(link.is_symlink(), SYMLINKS)
             self.assertTrue((link / "SKILL.md").is_file())
             self.assertFalse((root / ".gemini").exists())
 
@@ -109,7 +124,7 @@ class RenderBehaviour(unittest.TestCase):
             rep = validate.Report()
             validate.check_project(Path(tmp), rep)
             self.assertEqual([w for w in rep.warnings if "different content" in w], [])
-            setup = next(Path(tmp).glob(".agent-architect/*/SETUP.md")).read_text()
+            setup = next(Path(tmp).glob(".agent-architect/*/SETUP.md")).read_text(encoding="utf-8")
             self.assertNotIn("(symlink)", setup)
             self.assertIn("(copy of", setup)
 
@@ -120,7 +135,7 @@ class RenderBehaviour(unittest.TestCase):
             path = write_bp(Path(tmp), bp)
             code, _, _ = run(render.main, [str(path), "--out", tmp, "--harness", "claude-code"])
             self.assertEqual(code, 0)
-            setup = next(Path(tmp).glob(".agent-architect/*/SETUP.md")).read_text()
+            setup = next(Path(tmp).glob(".agent-architect/*/SETUP.md")).read_text(encoding="utf-8")
             self.assertIn("## Before you start", setup)
             self.assertIn("- ffmpeg on PATH", setup)
         bp["system"]["requirements"] = "ffmpeg"
@@ -156,7 +171,7 @@ class RenderBehaviour(unittest.TestCase):
             code, _, err = run(render.main, [str(EXAMPLES[1]), "--out", tmp, "--harness", "claude-code"])
             self.assertEqual(code, 1)
             self.assertIn("security-reviewer.md", err)
-            self.assertIn("hand written", agent.read_text())
+            self.assertIn("hand written", agent.read_text(encoding="utf-8"))
 
     def test_dry_run_writes_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
